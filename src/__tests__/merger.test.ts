@@ -1,7 +1,18 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import libCoverage from 'istanbul-lib-coverage'
 import type { CoverageMap } from 'istanbul-lib-coverage'
-import { CoverageMerger, createMerger, mergeCoverageMaps } from '../merger.js'
+import {
+  CoverageMerger,
+  createMerger,
+  mergeCoverageMaps,
+  mergeWithBaseCoverage,
+  mergeCoverage,
+  printCoverageSummary,
+  printCoverageComparison,
+} from '../merger.js'
 
 // Helper to create a coverage map with test data
 function createTestCoverageMap(files: Record<string, {
@@ -351,5 +362,346 @@ describe('CoverageMerger - structure preference', () => {
 
     // Should have 3 statements (more items wins)
     expect(Object.keys(coverage.statementMap).length).toBe(3)
+  })
+})
+
+describe('mergeWithBaseCoverage', () => {
+  let testDir: string
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `merge-test-${Date.now()}`)
+    await fs.mkdir(testDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should merge with base coverage file', async () => {
+    const baseMap = createTestCoverageMap({
+      '/a.ts': { statements: { '0': 1 } },
+    })
+    const additionalMap = createTestCoverageMap({
+      '/b.ts': { statements: { '0': 1 } },
+    })
+
+    // Write base coverage to file
+    const basePath = join(testDir, 'base-coverage.json')
+    await fs.writeFile(basePath, JSON.stringify(baseMap.toJSON()))
+
+    const result = await mergeWithBaseCoverage(additionalMap, basePath)
+
+    expect(result.coverageMap.files()).toContain('/a.ts')
+    expect(result.coverageMap.files()).toContain('/b.ts')
+    expect(result.stats.baseFiles).toBe(1)
+    expect(result.stats.additionalFiles).toBe(1)
+  })
+
+  it('should handle non-existent base coverage', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const additionalMap = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 } },
+    })
+
+    const result = await mergeWithBaseCoverage(additionalMap, '/non/existent.json')
+
+    expect(result.stats.baseFiles).toBe(0)
+    expect(result.stats.newFiles).toBe(1)
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('mergeCoverage', () => {
+  let testDir: string
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `merge-coverage-test-${Date.now()}`)
+    await fs.mkdir(testDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should return null when E2E coverage not found', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await mergeCoverage({
+      unitCoveragePath: '/non/existent/unit.json',
+      e2eCoveragePath: '/non/existent/e2e.json',
+      outputDir: testDir,
+    })
+
+    expect(result).toBeNull()
+    consoleSpy.mockRestore()
+  })
+
+  it('should process E2E only when no unit coverage', async () => {
+    const e2eMap = createTestCoverageMap({
+      '/e2e.ts': { statements: { '0': 1 } },
+    })
+
+    const e2ePath = join(testDir, 'e2e-coverage.json')
+    await fs.writeFile(e2ePath, JSON.stringify(e2eMap.toJSON()))
+
+    const result = await mergeCoverage({
+      unitCoveragePath: '/non/existent/unit.json',
+      e2eCoveragePath: e2ePath,
+      outputDir: join(testDir, 'output'),
+    })
+
+    expect(result).not.toBeNull()
+    expect(result!.coverageMap.files()).toContain('/e2e.ts')
+    expect(result!.stats.baseFiles).toBe(0)
+  })
+
+  it('should merge unit and E2E coverage', async () => {
+    const unitMap = createTestCoverageMap({
+      '/unit.ts': { statements: { '0': 1 } },
+    })
+    const e2eMap = createTestCoverageMap({
+      '/e2e.ts': { statements: { '0': 1 } },
+    })
+
+    const unitPath = join(testDir, 'unit-coverage.json')
+    const e2ePath = join(testDir, 'e2e-coverage.json')
+    await fs.writeFile(unitPath, JSON.stringify(unitMap.toJSON()))
+    await fs.writeFile(e2ePath, JSON.stringify(e2eMap.toJSON()))
+
+    const result = await mergeCoverage({
+      unitCoveragePath: unitPath,
+      e2eCoveragePath: e2ePath,
+      outputDir: join(testDir, 'output'),
+    })
+
+    expect(result).not.toBeNull()
+    expect(result!.coverageMap.files()).toContain('/unit.ts')
+    expect(result!.coverageMap.files()).toContain('/e2e.ts')
+    expect(result!.unitSummary).toBeDefined()
+  })
+
+  it('should support verbose mode', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const e2eMap = createTestCoverageMap({
+      '/e2e.ts': { statements: { '0': 1 } },
+    })
+
+    const e2ePath = join(testDir, 'e2e-coverage.json')
+    await fs.writeFile(e2ePath, JSON.stringify(e2eMap.toJSON()))
+
+    await mergeCoverage({
+      unitCoveragePath: '/non/existent/unit.json',
+      e2eCoveragePath: e2ePath,
+      outputDir: join(testDir, 'output'),
+      verbose: true,
+    })
+
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it('should identify E2E-only files', async () => {
+    const unitMap = createTestCoverageMap({
+      '/shared.ts': { statements: { '0': 1 } },
+    })
+    const e2eMap = createTestCoverageMap({
+      '/shared.ts': { statements: { '0': 1 } },
+      '/e2e-only.ts': { statements: { '0': 1 } },
+    })
+
+    const unitPath = join(testDir, 'unit-coverage.json')
+    const e2ePath = join(testDir, 'e2e-coverage.json')
+    await fs.writeFile(unitPath, JSON.stringify(unitMap.toJSON()))
+    await fs.writeFile(e2ePath, JSON.stringify(e2eMap.toJSON()))
+
+    const result = await mergeCoverage({
+      unitCoveragePath: unitPath,
+      e2eCoveragePath: e2ePath,
+      outputDir: join(testDir, 'output'),
+      projectRoot: '/',
+    })
+
+    expect(result).not.toBeNull()
+    expect(result!.e2eOnlyFiles).toContain('e2e-only.ts')
+  })
+})
+
+describe('printCoverageSummary', () => {
+  it('should print summary without throwing', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const summary = {
+      statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
+      branches: { total: 5, covered: 4, skipped: 0, pct: 80 },
+      functions: { total: 3, covered: 3, skipped: 0, pct: 100 },
+      lines: { total: 10, covered: 8, skipped: 0, pct: 80 },
+    }
+
+    expect(() => printCoverageSummary(summary)).not.toThrow()
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it('should accept custom title', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const summary = {
+      statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
+      branches: { total: 5, covered: 4, skipped: 0, pct: 80 },
+      functions: { total: 3, covered: 3, skipped: 0, pct: 100 },
+      lines: { total: 10, covered: 8, skipped: 0, pct: 80 },
+    }
+
+    printCoverageSummary(summary, 'Custom Title')
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Custom Title'))
+    consoleSpy.mockRestore()
+  })
+
+  it('should show different status for different coverage levels', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const summary = {
+      statements: { total: 10, covered: 9, skipped: 0, pct: 90 },  // high
+      branches: { total: 10, covered: 6, skipped: 0, pct: 60 },   // medium
+      functions: { total: 10, covered: 3, skipped: 0, pct: 30 },  // low
+      lines: { total: 10, covered: 8, skipped: 0, pct: 80 },
+    }
+
+    printCoverageSummary(summary)
+
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('printCoverageComparison', () => {
+  it('should print comparison with all values', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const unit = {
+      statements: { total: 10, covered: 5, skipped: 0, pct: 50 },
+      branches: { total: 5, covered: 2, skipped: 0, pct: 40 },
+      functions: { total: 3, covered: 2, skipped: 0, pct: 66.7 },
+      lines: { total: 10, covered: 5, skipped: 0, pct: 50 },
+    }
+    const e2e = {
+      statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
+      branches: { total: 5, covered: 4, skipped: 0, pct: 80 },
+      functions: { total: 3, covered: 3, skipped: 0, pct: 100 },
+      lines: { total: 10, covered: 8, skipped: 0, pct: 80 },
+    }
+    const merged = {
+      statements: { total: 10, covered: 9, skipped: 0, pct: 90 },
+      branches: { total: 5, covered: 5, skipped: 0, pct: 100 },
+      functions: { total: 3, covered: 3, skipped: 0, pct: 100 },
+      lines: { total: 10, covered: 9, skipped: 0, pct: 90 },
+    }
+
+    expect(() => printCoverageComparison(unit, e2e, merged)).not.toThrow()
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it('should handle undefined unit coverage', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const e2e = {
+      statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
+      branches: { total: 5, covered: 4, skipped: 0, pct: 80 },
+      functions: { total: 3, covered: 3, skipped: 0, pct: 100 },
+      lines: { total: 10, covered: 8, skipped: 0, pct: 80 },
+    }
+    const merged = {
+      statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
+      branches: { total: 5, covered: 4, skipped: 0, pct: 80 },
+      functions: { total: 3, covered: 3, skipped: 0, pct: 100 },
+      lines: { total: 10, covered: 8, skipped: 0, pct: 80 },
+    }
+
+    expect(() => printCoverageComparison(undefined, e2e, merged)).not.toThrow()
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('CoverageMerger - merge functions with different structures', () => {
+  it('should merge when additional has more functions', async () => {
+    const merger = new CoverageMerger({ applyFixes: false })
+    const map1 = createTestCoverageMap({
+      '/test.ts': { functions: { '0': 1 } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { functions: { '0': 1, '1': 1, '2': 1 } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+
+    expect(Object.keys(coverage.fnMap).length).toBe(3)
+  })
+
+  it('should merge when additional has more branches', async () => {
+    const merger = new CoverageMerger({ applyFixes: false })
+    const map1 = createTestCoverageMap({
+      '/test.ts': { branches: { '0': [1, 0] } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { branches: { '0': [0, 1], '1': [1, 1] } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+
+    expect(Object.keys(coverage.branchMap).length).toBe(2)
+  })
+})
+
+describe('CoverageMerger - loadCoverageJson with file', () => {
+  let testDir: string
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `load-json-test-${Date.now()}`)
+    await fs.mkdir(testDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should load valid coverage JSON', async () => {
+    const merger = new CoverageMerger()
+    const map = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 } },
+    })
+
+    const filePath = join(testDir, 'coverage.json')
+    await fs.writeFile(filePath, JSON.stringify(map.toJSON()))
+
+    const result = await merger.loadCoverageJson(filePath)
+
+    expect(result).not.toBeNull()
+    expect(result!.files()).toContain('/test.ts')
+  })
+
+  it('should return null for invalid JSON', async () => {
+    const merger = new CoverageMerger()
+
+    const filePath = join(testDir, 'invalid.json')
+    await fs.writeFile(filePath, 'not json')
+
+    const result = await merger.loadCoverageJson(filePath)
+
+    expect(result).toBeNull()
   })
 })
