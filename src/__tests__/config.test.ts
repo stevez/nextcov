@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { join } from 'node:path'
 import {
   resolveNextcovConfig,
   clearConfigCache,
   normalizePath,
+  loadNextcovConfig,
   DEFAULT_NEXTCOV_CONFIG,
   DEFAULT_INCLUDE_PATTERNS,
   DEFAULT_EXCLUDE_PATTERNS,
   DEFAULT_REPORTERS,
   DEFAULT_WATERMARKS,
+  COVERAGE_FINAL_JSON,
 } from '../config.js'
 
 describe('config', () => {
@@ -179,5 +181,44 @@ describe('config - edge cases', () => {
     expect(config.sourceRoot).toBe(DEFAULT_NEXTCOV_CONFIG.sourceRoot)
     expect(config.collectServer).toBe(DEFAULT_NEXTCOV_CONFIG.collectServer)
     expect(config.collectClient).toBe(DEFAULT_NEXTCOV_CONFIG.collectClient)
+  })
+})
+
+describe('COVERAGE_FINAL_JSON', () => {
+  it('should be coverage-final.json', () => {
+    expect(COVERAGE_FINAL_JSON).toBe('coverage-final.json')
+  })
+})
+
+describe('loadNextcovConfig', () => {
+  beforeEach(() => {
+    clearConfigCache()
+  })
+
+  afterEach(() => {
+    clearConfigCache()
+  })
+
+  it('should return defaults when config file does not exist', async () => {
+    const config = await loadNextcovConfig('/non/existent/path.ts')
+
+    expect(config.cdpPort).toBe(DEFAULT_NEXTCOV_CONFIG.cdpPort)
+    expect(config.buildDir).toBe(DEFAULT_NEXTCOV_CONFIG.buildDir)
+  })
+
+  it('should cache config after first load', async () => {
+    const config1 = await loadNextcovConfig('/non/existent/path.ts')
+    const config2 = await loadNextcovConfig('/non/existent/path.ts')
+
+    expect(config1).toBe(config2)
+  })
+
+  it('should load from different path if changed', async () => {
+    const config1 = await loadNextcovConfig('/path/one.ts')
+    clearConfigCache()
+    const config2 = await loadNextcovConfig('/path/two.ts')
+
+    // Both should return defaults since files don't exist
+    expect(config1.cdpPort).toBe(config2.cdpPort)
   })
 })
