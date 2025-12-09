@@ -34,13 +34,14 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
-    "v8",
+    "v8-coverage",
     "istanbul",
     "coverage",
     "next.js",
+    "server components",
+    "rsc",
     "playwright",
-    "cdp",
-    "testing"
+    "vitest"
   ],
   "engines": {
     "node": ">=20.0.0"
