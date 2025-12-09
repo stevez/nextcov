@@ -75,7 +75,7 @@ npm install nextcov --save-dev
 ### Peer Dependencies
 
 ```bash
-npm install @playwright/test istanbul-lib-coverage istanbul-lib-report istanbul-reports --save-dev
+npm install @playwright/test --save-dev
 ```
 
 ## Example Project
@@ -204,7 +204,7 @@ Create `e2e/global-setup.ts`:
 
 ```typescript
 import * as path from 'path'
-import { connectToCDP, loadNextcovConfig } from 'nextcov'
+import { startServerCoverageAutoDetect, loadNextcovConfig } from 'nextcov'
 
 export default async function globalSetup() {
   // Load config from playwright.config.ts
@@ -212,9 +212,10 @@ export default async function globalSetup() {
     path.join(process.cwd(), 'e2e', 'playwright.config.ts')
   )
 
-  // Connect to server for coverage collection
-  console.log('Setting up server coverage...')
-  await connectToCDP({ port: config.cdpPort })
+  // Start server coverage collection with auto-detection (dev vs production mode)
+  await startServerCoverageAutoDetect({
+    cdpPort: config.cdpPort,
+  })
 }
 ```
 
@@ -278,33 +279,9 @@ In development mode, Next.js uses webpack's `eval-source-map` devtool which embe
 
 ### Running Tests Against Dev Server
 
-#### 1. Update Global Setup for Auto-Detection
+The global setup from the Quick Start already uses `startServerCoverageAutoDetect`, which automatically detects dev vs production mode. No changes needed!
 
-Replace `connectToCDP` with `startServerCoverageAutoDetect`:
-
-```typescript
-// e2e/global-setup.ts
-import * as path from 'path'
-import { startServerCoverageAutoDetect, loadNextcovConfig } from 'nextcov'
-
-export default async function globalSetup() {
-  const config = await loadNextcovConfig(
-    path.join(process.cwd(), 'e2e', 'playwright.config.ts')
-  )
-
-  // Auto-detect dev vs production mode
-  const result = await startServerCoverageAutoDetect({
-    cdpPort: config.cdpPort,
-    sourceRoot: config.sourceRoot,
-  })
-
-  if (result) {
-    console.log(`Coverage mode: ${result.isDevMode ? 'development' : 'production'}`)
-  }
-}
-```
-
-#### 2. Start Dev Server with Inspector
+#### Start Dev Server with Inspector
 
 ```bash
 # Start Next.js dev server with Node inspector enabled
