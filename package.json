@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -48,25 +48,21 @@
     "node": ">=20.0.0"
   },
   "peerDependencies": {
-    "@playwright/test": "^1.40.0",
-    "chrome-remote-interface": "^0.33.0",
-    "istanbul-lib-coverage": "^3.0.0",
-    "istanbul-lib-report": "^3.0.0",
-    "istanbul-reports": "^3.0.0"
-  },
-  "peerDependenciesMeta": {
-    "chrome-remote-interface": {
-      "optional": true
-    }
+    "@playwright/test": "^1.40.0"
   },
   "dependencies": {
     "@babel/parser": "^7.24.0",
+    "chrome-remote-interface": "^0.33.0",
     "@bcoe/v8-coverage": "^1.0.0",
     "@jridgewell/sourcemap-codec": "^1.4.0",
     "acorn": "^8.12.0",
     "ast-v8-to-istanbul": "^0.3.0",
     "convert-source-map": "^2.0.0",
     "glob": "^11.0.0",
+    "istanbul-lib-coverage": "^3.2.0",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-lib-source-maps": "^5.0.0",
+    "istanbul-reports": "^3.1.0",
     "monocart-coverage-reports": "^2.0.0"
   },
   "devDependencies": {
@@ -79,12 +75,7 @@
     "@types/istanbul-reports": "^3.0.4",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.0.15",
-    "chrome-remote-interface": "^0.33.3",
     "eslint": "^9.39.1",
-    "istanbul-lib-coverage": "^3.2.0",
-    "istanbul-lib-report": "^3.0.1",
-    "istanbul-lib-source-maps": "^5.0.0",
-    "istanbul-reports": "^3.1.0",
     "rimraf": "^6.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.49.0",
