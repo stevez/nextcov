@@ -64,6 +64,10 @@
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "@types/convert-source-map": "^2.0.3",
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/istanbul-lib-report": "^3.0.3",
+    "@types/istanbul-lib-source-maps": "^4.0.4",
+    "@types/istanbul-reports": "^3.0.4",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.0.15",
     "istanbul-lib-coverage": "^3.2.0",

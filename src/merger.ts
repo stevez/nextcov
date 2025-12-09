@@ -257,17 +257,18 @@ export class CoverageMerger {
     additional: FileCoverageData,
     preferBase: boolean = false
   ): FileCoverageData {
-    const locationKey = (loc: {
-      start: { line: number; column: number | null }
-    }): string => `${loc.start.line}:${loc.start.column}`
+    type Location = { start: { line: number; column: number | null } }
+    type FnEntry = { loc: Location }
+    type BranchEntry = { loc: Location }
 
-    const lineKey = (loc: { start: { line: number } }): number => loc.start.line
+    const locationKey = (loc: Location): string => `${loc.start.line}:${loc.start.column}`
+    const lineKey = (loc: Location): number => loc.start.line
 
     // Build lookup maps
     const buildLookups = (data: FileCoverageData) => {
       const stmts = new Map<string, number>()
       const stmtsByLine = new Map<number, number>()
-      for (const [key, loc] of Object.entries(data.statementMap || {})) {
+      for (const [key, loc] of Object.entries(data.statementMap || {}) as [string, Location][]) {
         const count = data.s[key] || 0
         if (count > 0) {
           stmts.set(locationKey(loc), count)
@@ -278,7 +279,7 @@ export class CoverageMerger {
 
       const fns = new Map<string, number>()
       const fnsByLine = new Map<number, number>()
-      for (const [key, fn] of Object.entries(data.fnMap || {})) {
+      for (const [key, fn] of Object.entries(data.fnMap || {}) as [string, FnEntry][]) {
         const count = data.f[key] || 0
         if (count > 0) {
           fns.set(locationKey(fn.loc), count)
@@ -289,9 +290,9 @@ export class CoverageMerger {
 
       const branches = new Map<string, number[]>()
       const branchesByLine = new Map<number, number[]>()
-      for (const [key, branch] of Object.entries(data.branchMap || {})) {
+      for (const [key, branch] of Object.entries(data.branchMap || {}) as [string, BranchEntry][]) {
         const counts = data.b[key] || []
-        if (counts.some((c) => c > 0)) {
+        if (counts.some((c: number) => c > 0)) {
           branches.set(locationKey(branch.loc), counts)
           const line = lineKey(branch.loc)
           if (!branchesByLine.has(line)) {
@@ -326,7 +327,7 @@ export class CoverageMerger {
     if (useAdditionalStatements) {
       merged.statementMap = JSON.parse(JSON.stringify(additional.statementMap))
       merged.s = JSON.parse(JSON.stringify(additional.s))
-      for (const [key, loc] of Object.entries(merged.statementMap)) {
+      for (const [key, loc] of Object.entries(merged.statementMap) as [string, Location][]) {
         const locKey = locationKey(loc)
         const line = lineKey(loc)
         const baseCount =
@@ -336,7 +337,7 @@ export class CoverageMerger {
         }
       }
     } else {
-      for (const [key, loc] of Object.entries(merged.statementMap)) {
+      for (const [key, loc] of Object.entries(merged.statementMap) as [string, Location][]) {
         const locKey = locationKey(loc)
         const line = lineKey(loc)
         const addCount =
@@ -352,7 +353,7 @@ export class CoverageMerger {
     if (useAdditionalFunctions) {
       merged.fnMap = JSON.parse(JSON.stringify(additional.fnMap))
       merged.f = JSON.parse(JSON.stringify(additional.f))
-      for (const [key, fn] of Object.entries(merged.fnMap)) {
+      for (const [key, fn] of Object.entries(merged.fnMap) as [string, FnEntry][]) {
         const locKey = locationKey(fn.loc)
         const line = lineKey(fn.loc)
         const baseCount =
@@ -362,7 +363,7 @@ export class CoverageMerger {
         }
       }
     } else {
-      for (const [key, fn] of Object.entries(merged.fnMap)) {
+      for (const [key, fn] of Object.entries(merged.fnMap) as [string, FnEntry][]) {
         const locKey = locationKey(fn.loc)
         const line = lineKey(fn.loc)
         const addCount =
@@ -378,20 +379,20 @@ export class CoverageMerger {
     if (useAdditionalBranches) {
       merged.branchMap = JSON.parse(JSON.stringify(additional.branchMap))
       merged.b = JSON.parse(JSON.stringify(additional.b))
-      for (const [key, branch] of Object.entries(merged.branchMap)) {
+      for (const [key, branch] of Object.entries(merged.branchMap) as [string, BranchEntry][]) {
         const locKey = locationKey(branch.loc)
         const line = lineKey(branch.loc)
         const baseCounts =
           baseLookups.branches.get(locKey) ??
           baseLookups.branchesByLine.get(line)
         if (baseCounts !== undefined) {
-          merged.b[key] = merged.b[key].map((c, i) =>
+          merged.b[key] = merged.b[key].map((c: number, i: number) =>
             Math.max(c, baseCounts[i] || 0)
           )
         }
       }
     } else {
-      for (const [key, branch] of Object.entries(merged.branchMap)) {
+      for (const [key, branch] of Object.entries(merged.branchMap) as [string, BranchEntry][]) {
         const locKey = locationKey(branch.loc)
         const line = lineKey(branch.loc)
         const addCounts =
@@ -399,7 +400,7 @@ export class CoverageMerger {
           additionalLookups.branchesByLine.get(line)
         if (addCounts !== undefined) {
           const baseCounts = merged.b[key] || []
-          merged.b[key] = baseCounts.map((c, i) =>
+          merged.b[key] = baseCounts.map((c: number, i: number) =>
             Math.max(c, addCounts[i] || 0)
           )
         }
@@ -689,7 +690,7 @@ export async function mergeCoverage(options: MergeCoverageOptions): Promise<Merg
         newFiles: e2eCoverageMap.files().length,
       },
       e2eSummary,
-      e2eOnlyFiles: e2eCoverageMap.files().map(f => relativePath(projectRoot, f)),
+      e2eOnlyFiles: e2eCoverageMap.files().map((f: string) => relativePath(projectRoot, f)),
     }
   }
 
@@ -716,8 +717,8 @@ export async function mergeCoverage(options: MergeCoverageOptions): Promise<Merg
   // Find E2E-only files
   const unitFiles = unitCoverageMap ? new Set(unitCoverageMap.files()) : new Set<string>()
   const e2eOnlyFiles = e2eCoverageMap.files()
-    .filter(f => !unitFiles.has(f))
-    .map(f => relativePath(projectRoot, f))
+    .filter((f: string) => !unitFiles.has(f))
+    .map((f: string) => relativePath(projectRoot, f))
 
   return {
     coverageMap: mergeResult.coverageMap,
