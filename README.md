@@ -53,9 +53,9 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 ## Inspiration
 
 This project is inspired by and builds upon:
-- [monocart-coverage-reports](https://github.com/cenfun/monocart-coverage-reports) - For V8 coverage processing
 - [Vitest](https://vitest.dev/) - For the V8 coverage approach and Istanbul integration
 - [ast-v8-to-istanbul](https://github.com/AriPerkkio/ast-v8-to-istanbul) - For AST-based V8 to Istanbul conversion
+- [monocart-coverage-reports](https://github.com/cenfun/monocart-coverage-reports) - For V8 coverage processing
 
 ## Installation
 
@@ -74,6 +74,29 @@ npm install nextcov --save-dev
 ```bash
 npm install @playwright/test istanbul-lib-coverage istanbul-lib-report istanbul-reports --save-dev
 ```
+
+## Example Project
+
+See [restaurant-reviews-platform](https://github.com/stevez/restaurant-reviews-platform) for a complete working example of nextcov integrated with a Next.js App Router application using Playwright E2E tests and Vitest unit tests.
+
+### Coverage Results
+
+The example project demonstrates how nextcov bridges the coverage gap:
+
+| Coverage Type | Lines | Description |
+|---------------|-------|-------------|
+| **Unit Tests** (Vitest) | ~80% | Client components, utilities, API routes |
+| **E2E Tests** (Playwright + nextcov) | ~46% | Server components, pages, user flows |
+| **Merged** | ~88% | Complete picture of your application |
+
+### Key Files
+
+- [e2e/playwright.config.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/playwright.config.ts) - Playwright config with nextcov settings
+- [e2e/fixtures.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/fixtures.ts) - Coverage collection fixture
+- [e2e/global-setup.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-setup.ts) - Server coverage setup
+- [e2e/global-teardown.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-teardown.ts) - Coverage finalization
+- [scripts/merge-coverage.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/scripts/merge-coverage.ts) - Merge unit + E2E coverage
+- [next.config.js](https://github.com/stevez/restaurant-reviews-platform/blob/main/next.config.js) - Next.js source map configuration
 
 ## Quick Start
 
@@ -437,10 +460,6 @@ const merged = await merger.merge(map1, map2, map3)
 5. **Report Generation**
    - Generates Istanbul-compatible reports (HTML, LCOV, JSON, etc.)
    - Compatible with standard coverage tools and CI integrations
-
-## Example Project
-
-See [restaurant-reviews-platform](https://github.com/stevez/restaurant-reviews-platform) for a complete working example of nextcov integrated with a Next.js App Router application using Playwright E2E tests and Vitest unit tests.
 
 ## Troubleshooting
 
