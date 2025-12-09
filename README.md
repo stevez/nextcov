@@ -438,6 +438,10 @@ const merged = await merger.merge(map1, map2, map3)
    - Generates Istanbul-compatible reports (HTML, LCOV, JSON, etc.)
    - Compatible with standard coverage tools and CI integrations
 
+## Example Project
+
+See [restaurant-reviews-platform](https://github.com/stevez/restaurant-reviews-platform) for a complete working example of nextcov integrated with a Next.js App Router application using Playwright E2E tests and Vitest unit tests.
+
 ## Troubleshooting
 
 ### 0% Coverage
