@@ -76,6 +76,34 @@ export interface NextcovConfig {
 
   /** Reporter types for coverage output */
   reporters?: ReporterType[]
+
+  /**
+   * Dev mode configuration.
+   * When enabled, nextcov extracts inline source maps from webpack's eval-source-map format.
+   * Set to true to auto-detect, or provide config object for manual control.
+   */
+  devMode?: boolean | DevModeOptions
+}
+
+/**
+ * Dev mode specific options
+ */
+export interface DevModeOptions {
+  /** Enable dev mode (default: auto-detect via NODE_ENV) */
+  enabled?: boolean
+  /** Base URL of the dev server (default: http://localhost:3000) */
+  baseUrl?: string
+  /** CDP port for dev mode server (default: cdpPort + 1, e.g., 9231 for worker process) */
+  devCdpPort?: number
+}
+
+/**
+ * Resolved dev mode options
+ */
+export interface ResolvedDevModeOptions {
+  enabled: boolean
+  baseUrl: string
+  devCdpPort: number
 }
 
 /**
@@ -92,15 +120,26 @@ export interface ResolvedNextcovConfig {
   include: string[]
   exclude: string[]
   reporters: ReporterType[]
+  devMode: ResolvedDevModeOptions
 }
 
 const DEFAULT_OUTPUT_DIR = 'coverage/e2e'
+const DEFAULT_CDP_PORT = parseInt(process.env.CDP_PORT || '9230', 10)
+
+/**
+ * Default dev mode options
+ */
+export const DEFAULT_DEV_MODE_OPTIONS: ResolvedDevModeOptions = {
+  enabled: process.env.NODE_ENV === 'development',
+  baseUrl: 'http://localhost:3000',
+  devCdpPort: DEFAULT_CDP_PORT + 1, // Worker process is on next port (9231)
+}
 
 /**
  * Default configuration values
  */
 export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
-  cdpPort: parseInt(process.env.CDP_PORT || '9230', 10),
+  cdpPort: DEFAULT_CDP_PORT,
   buildDir: '.next',
   cacheDir: join(DEFAULT_OUTPUT_DIR, '.cache'),
   outputDir: DEFAULT_OUTPUT_DIR,
@@ -110,6 +149,40 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
   include: DEFAULT_INCLUDE_PATTERNS,
   exclude: DEFAULT_EXCLUDE_PATTERNS,
   reporters: DEFAULT_REPORTERS,
+  devMode: DEFAULT_DEV_MODE_OPTIONS,
+}
+
+/**
+ * Resolve dev mode options
+ */
+function resolveDevModeOptions(
+  devMode: boolean | DevModeOptions | undefined,
+  cdpPort: number
+): ResolvedDevModeOptions {
+  // If devMode is undefined, auto-detect
+  if (devMode === undefined) {
+    return {
+      enabled: process.env.NODE_ENV === 'development',
+      baseUrl: DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+      devCdpPort: cdpPort + 1,
+    }
+  }
+
+  // If devMode is a boolean
+  if (typeof devMode === 'boolean') {
+    return {
+      enabled: devMode,
+      baseUrl: DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+      devCdpPort: cdpPort + 1,
+    }
+  }
+
+  // If devMode is an object
+  return {
+    enabled: devMode.enabled ?? process.env.NODE_ENV === 'development',
+    baseUrl: devMode.baseUrl ?? DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+    devCdpPort: devMode.devCdpPort ?? cdpPort + 1,
+  }
 }
 
 /**
@@ -117,8 +190,10 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
  */
 export function resolveNextcovConfig(config?: NextcovConfig): ResolvedNextcovConfig {
   const outputDir = config?.outputDir ?? DEFAULT_NEXTCOV_CONFIG.outputDir
+  const cdpPort = config?.cdpPort ?? DEFAULT_NEXTCOV_CONFIG.cdpPort
+
   return {
-    cdpPort: config?.cdpPort ?? DEFAULT_NEXTCOV_CONFIG.cdpPort,
+    cdpPort,
     buildDir: config?.buildDir ?? DEFAULT_NEXTCOV_CONFIG.buildDir,
     cacheDir: join(outputDir, '.cache'),
     outputDir,
@@ -128,6 +203,7 @@ export function resolveNextcovConfig(config?: NextcovConfig): ResolvedNextcovCon
     include: config?.include ?? DEFAULT_NEXTCOV_CONFIG.include,
     exclude: config?.exclude ?? DEFAULT_NEXTCOV_CONFIG.exclude,
     reporters: config?.reporters ?? DEFAULT_NEXTCOV_CONFIG.reporters,
+    devMode: resolveDevModeOptions(config?.devMode, cdpPort),
   }
 }
 

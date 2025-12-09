@@ -44,7 +44,10 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 
 - **Next.js focused** - Built specifically for Next.js applications
 - **Client + Server coverage** - Collects coverage from both browser and Node.js server
-- **Source map support** - Maps bundled production code back to original TypeScript/JSX
+- **Dev mode support** - Works with `next dev` using inline source maps (no build required)
+- **Production mode support** - Works with `next build && next start` using external source maps
+- **Auto-detection** - Automatically detects dev vs production mode
+- **Source map support** - Maps bundled code back to original TypeScript/JSX
 - **Vitest compatible** - Output merges seamlessly with Vitest coverage reports
 - **Playwright integration** - Simple fixtures for automatic coverage collection
 - **Istanbul format** - Generates standard coverage-final.json for tooling compatibility
@@ -261,6 +264,77 @@ npx playwright test
 npx start-server-and-test 'NODE_OPTIONS=--inspect=9230 npm start' http://localhost:3000 'npx playwright test'
 ```
 
+## Development Mode Coverage
+
+nextcov supports collecting coverage directly from `next dev` without requiring a production build. This is useful for faster iteration during development.
+
+### How Dev Mode Works
+
+In development mode, Next.js uses webpack's `eval-source-map` devtool which embeds source maps directly in the JavaScript code as base64-encoded data URLs. nextcov automatically:
+
+1. **Detects dev mode** by probing CDP ports (dev mode worker runs on base port + 1)
+2. **Extracts inline source maps** from `webpack-internal://` scripts via CDP Debugger API
+3. **Maps coverage** back to original TypeScript/JSX source files
+
+### Running Tests Against Dev Server
+
+#### 1. Update Global Setup for Auto-Detection
+
+Replace `connectToCDP` with `startServerCoverageAutoDetect`:
+
+```typescript
+// e2e/global-setup.ts
+import * as path from 'path'
+import { startServerCoverageAutoDetect, loadNextcovConfig } from 'nextcov'
+
+export default async function globalSetup() {
+  const config = await loadNextcovConfig(
+    path.join(process.cwd(), 'e2e', 'playwright.config.ts')
+  )
+
+  // Auto-detect dev vs production mode
+  const result = await startServerCoverageAutoDetect({
+    cdpPort: config.cdpPort,
+    sourceRoot: config.sourceRoot,
+  })
+
+  if (result) {
+    console.log(`Coverage mode: ${result.isDevMode ? 'development' : 'production'}`)
+  }
+}
+```
+
+#### 2. Start Dev Server with Inspector
+
+```bash
+# Start Next.js dev server with Node inspector enabled
+NODE_OPTIONS='--inspect=9230' npm run dev &
+
+# Run Playwright tests
+npx playwright test
+```
+
+The dev server spawns a worker process on `cdpPort + 1` (e.g., 9231 if you use `--inspect=9230`) which handles the actual requests. nextcov automatically connects to this worker process to collect server coverage.
+
+### Dev Mode vs Production Mode
+
+| Aspect | Dev Mode | Production Mode |
+|--------|----------|-----------------|
+| **Server Command** | `next dev` | `next build && next start` |
+| **CDP Port** | cdpPort + 1 (worker) | cdpPort (main) |
+| **Source Maps** | Inline (base64 in JS) | External (.map files) |
+| **Build Required** | No | Yes |
+| **Hot Reload** | Yes | No |
+| **Performance** | Slower | Faster |
+| **Recommended For** | Development iteration | CI/CD, final coverage |
+
+### When to Use Each Mode
+
+- **Dev Mode**: Quick feedback during development, testing new features
+- **Production Mode**: CI pipelines, accurate production-like coverage, final reports
+
+Both modes produce identical Istanbul-compatible output that can be merged with Vitest coverage.
+
 ## Merging with Vitest Coverage
 
 The main power of nextcov is combining E2E coverage with unit test coverage.
@@ -381,12 +455,40 @@ const config = await loadNextcovConfig('./e2e/playwright.config.ts')
 
 #### `connectToCDP(options)`
 
-Connects to Node.js server via Chrome DevTools Protocol for server coverage.
+Connects to Node.js server via Chrome DevTools Protocol for server coverage (production mode).
 
 ```typescript
 import { connectToCDP } from 'nextcov'
 
 await connectToCDP({ port: 9230 })
+```
+
+#### `startServerCoverageAutoDetect(options?)`
+
+Auto-detects dev vs production mode and starts server coverage collection. Call in globalSetup.
+
+```typescript
+import { startServerCoverageAutoDetect } from 'nextcov'
+
+const result = await startServerCoverageAutoDetect({
+  cdpPort: 9230,      // Base port (will also try 9231 for dev mode)
+  sourceRoot: 'src',  // Source directory to filter
+})
+
+if (result) {
+  console.log(`Mode: ${result.isDevMode ? 'dev' : 'production'}, Port: ${result.port}`)
+}
+```
+
+#### `stopServerCoverageAutoDetect()`
+
+Stops server coverage collection and returns the collected entries. Call in globalTeardown.
+
+```typescript
+import { stopServerCoverageAutoDetect } from 'nextcov'
+
+const { entries, isDevMode } = await stopServerCoverageAutoDetect()
+console.log(`Collected ${entries.length} entries in ${isDevMode ? 'dev' : 'production'} mode`)
 ```
 
 #### `mergeCoverage(options)`
@@ -480,6 +582,19 @@ const merged = await merger.merge(map1, map2, map3)
 - Run `npm run build` with `E2E_MODE=true`
 - Check `.next/static/chunks/` for `.map` files
 - Ensure webpack `devtool` is set to `'source-map'`
+
+### Dev Mode Coverage Not Working
+
+- Ensure Next.js dev server is started with `NODE_OPTIONS='--inspect=9230'`
+- Verify the worker process is running on cdpPort + 1 (e.g., 9231 if using `--inspect=9230`)
+- Use `startServerCoverageAutoDetect()` instead of `connectToCDP()` in globalSetup
+- Check that your source files are in the `sourceRoot` directory (default: `src`)
+
+### Dev Mode Shows 0 Coverage Entries
+
+- The dev server worker process may not have started yet - add a delay after starting dev server
+- Hot reload may have cleared scripts - ensure tests run after page is fully loaded
+- Check console for "Dev mode detected on port ..." message
 
 ## License
 

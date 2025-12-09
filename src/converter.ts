@@ -423,33 +423,63 @@ export class CoverageConverter {
 
   /**
    * Convert a single V8 script coverage entry to Istanbul format
+   *
+   * In dev mode, entries may have sourceMapData and originalPath pre-attached
+   * from the DevModeServerCollector. We use those when available.
    */
   async convertEntry(entry: V8ScriptCoverage): Promise<CoverageMapData | null> {
     const { url, functions, source } = entry
 
+    // Check for dev mode pre-attached source map data
+    const devModeSourceMap = (entry as any).sourceMapData as SourceMapData | undefined
+    const devModeOriginalPath = (entry as any).originalPath as string | undefined
+
     // Load source code and source map
     let code = source
-    let sourceMap: SourceMapData | undefined
-    let filePath: string | null = null
+    let sourceMap: SourceMapData | undefined = devModeSourceMap
+    // Resolve dev mode original path to absolute path (it's relative like "src/app/page.tsx")
+    let filePath: string | null = devModeOriginalPath
+      ? resolve(this.projectRoot, devModeOriginalPath)
+      : null
+
+    // Debug: Track why entries fail
+    const debugUrl = url.substring(0, 80)
 
     if (!code) {
       const sourceFile = await this.sourceMapLoader.loadSource(url)
       if (!sourceFile) {
+        // Debug: No code and couldn't load source
+        if (process.env.DEBUG_COVERAGE) {
+          console.log(`  [DEBUG] No source for: ${debugUrl}`)
+        }
         return null
       }
       code = sourceFile.code
-      sourceMap = sourceFile.sourceMap
-      filePath = sourceFile.path
-    } else {
-      // Try to load source map from disk first
+      // Only use disk source map if we don't have dev mode source map
+      if (!sourceMap) {
+        sourceMap = sourceFile.sourceMap
+      }
+      if (!filePath) {
+        filePath = sourceFile.path
+      }
+    } else if (!sourceMap) {
+      // Try to load source map from disk first (only if not already provided)
       const sourceFile = await this.sourceMapLoader.loadSource(url)
       if (sourceFile?.sourceMap) {
         sourceMap = sourceFile.sourceMap
-        filePath = sourceFile.path
+        if (!filePath) {
+          filePath = sourceFile.path
+        }
       } else {
         // No disk file (dev mode) - try to extract inline sourcemap from the source
         sourceMap = this.sourceMapLoader.extractInlineSourceMap(code) || undefined
-        filePath = this.sourceMapLoader.urlToFilePath(url)
+        if (!filePath) {
+          filePath = this.sourceMapLoader.urlToFilePath(url)
+        }
+        // Debug: Check if we found inline source map
+        if (process.env.DEBUG_COVERAGE && !sourceMap) {
+          console.log(`  [DEBUG] No inline sourcemap for: ${debugUrl}`)
+        }
       }
     }
 
@@ -474,7 +504,11 @@ export class CoverageConverter {
         allowReserved: true,
         locations: true,
       })
-    } catch (parseError) {
+    } catch {
+      // Debug: AST parse failed
+      if (process.env.DEBUG_COVERAGE) {
+        console.log(`  [DEBUG] AST parse failed for: ${debugUrl}`)
+      }
       return null
     }
 
@@ -485,6 +519,12 @@ export class CoverageConverter {
     // Next.js production builds have complex source maps with external references
     // that ast-v8-to-istanbul cannot process
     if (sourceMap && !sanitizedSourceMap) {
+      // Debug: Source map was sanitized away
+      if (process.env.DEBUG_COVERAGE) {
+        console.log(`  [DEBUG] Sourcemap rejected for: ${debugUrl}`)
+        console.log(`    sources: ${sourceMap.sources?.slice(0, 3).join(', ')}${sourceMap.sources && sourceMap.sources.length > 3 ? '...' : ''}`)
+        console.log(`    sourcesContent: ${sourceMap.sourcesContent ? `${sourceMap.sourcesContent.length} entries, first has content: ${!!sourceMap.sourcesContent[0]}` : 'none'}`)
+      }
       return null
     }
 
@@ -504,7 +544,7 @@ export class CoverageConverter {
       })
 
       return istanbulCoverage as CoverageMapData
-    } catch (convertError) {
+    } catch {
       return null
     }
   }
@@ -627,9 +667,14 @@ export class CoverageConverter {
       return false
     }
 
-    // Webpack internal queries
+    // Webpack internal queries - but allow them if we have sourcesContent
+    // In dev mode with eval-source-map, these ARE valid sources with content
     if (source.startsWith('webpack://') && source.includes('?')) {
-      return false
+      // If we have content, it's a dev mode source - allow it
+      if (!content || typeof content !== 'string') {
+        return false
+      }
+      // Continue validation for dev mode sources
     }
 
     // Absolute Windows paths not in our project
@@ -647,7 +692,9 @@ export class CoverageConverter {
     }
 
     // Must contain src/ - our code (check both original and normalized)
-    if (!normalizedSource.includes('src/') && !source.includes('/src/') && !source.includes('\\src\\')) {
+    // Exception: dev mode sources like "webpack://_N_E/?xxxx" should pass if they have content
+    const isDevModeSource = source.startsWith('webpack://') && source.includes('?')
+    if (!isDevModeSource && !normalizedSource.includes('src/') && !source.includes('/src/') && !source.includes('\\src\\')) {
       return false
     }
 

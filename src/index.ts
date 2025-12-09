@@ -10,6 +10,8 @@ export {
   // Types
   type NextcovConfig,
   type ResolvedNextcovConfig,
+  type DevModeOptions,
+  type ResolvedDevModeOptions,
   // Functions
   resolveNextcovConfig,
   loadNextcovConfig,
@@ -17,6 +19,7 @@ export {
   normalizePath,
   // Defaults
   DEFAULT_NEXTCOV_CONFIG,
+  DEFAULT_DEV_MODE_OPTIONS,
   DEFAULT_INCLUDE_PATTERNS,
   DEFAULT_EXCLUDE_PATTERNS,
   DEFAULT_REPORTERS,
@@ -58,7 +61,7 @@ export {
   filterAppCoverage,
   type PlaywrightCoverageEntry,
   type ClientCollectorConfig,
-  // Server collector
+  // Server collector (production mode)
   ServerCoverageCollector,
   createServerCollector,
   connectToCDP,
@@ -66,7 +69,27 @@ export {
   saveServerCoverage,
   type V8CoverageEntry,
   type ServerCollectorConfig,
+  // Dev mode server collector
+  DevModeServerCollector,
+  createDevModeServerCollector,
+  type DevServerCollectorConfig,
+  type DevServerCoverageEntry,
+  type ScriptInfo,
+  // Auto-detect collector (tries both dev and production modes)
+  startServerCoverageAutoDetect,
+  stopServerCoverageAutoDetect,
+  collectServerCoverageAutoDetect,
+  type AutoDetectConfig,
 } from './collector/index.js'
+
+// Dev mode utilities
+export {
+  DevModeSourceMapExtractor,
+  createDevModeExtractor,
+  isDevMode,
+  type ExtractedSourceMap,
+  type DevModeConfig,
+} from './dev-mode-extractor.js'
 
 // Types
 export type {

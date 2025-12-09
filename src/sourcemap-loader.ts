@@ -49,7 +49,7 @@ export class SourceMapLoader {
 
       this.sourceCache.set(url, sourceFile)
       return sourceFile
-    } catch (error) {
+    } catch {
       // File doesn't exist or can't be read - silently skip
       return null
     }

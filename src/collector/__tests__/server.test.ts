@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
@@ -7,7 +8,8 @@ import {
   ServerCoverageCollector,
   createServerCollector,
   type V8CoverageEntry,
-} from '../collector/server.js'
+} from '../server.js'
+import { createMockCoverageClient } from './test-utils.js'
 
 // Mock monocart-coverage-reports CDPClient
 vi.mock('monocart-coverage-reports', () => ({
@@ -78,9 +80,7 @@ describe('ServerCoverageCollector', () => {
 
     it('should return true when CDP connection succeeds', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const mockClient = {
-        startJSCoverage: vi.fn().mockResolvedValue(undefined),
-      }
+      const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
@@ -105,11 +105,7 @@ describe('ServerCoverageCollector', () => {
 
     it('should return empty array when no coverage data', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const mockClient = {
-        startJSCoverage: vi.fn().mockResolvedValue(undefined),
-        stopJSCoverage: vi.fn().mockResolvedValue([]),
-        close: vi.fn().mockResolvedValue(undefined),
-      }
+      const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
@@ -128,11 +124,9 @@ describe('ServerCoverageCollector', () => {
         { url: 'file:///project/node_modules/react.js', functions: [] },
         { url: 'http://localhost:3000/client.js', functions: [] },
       ]
-      const mockClient = {
-        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+      const mockClient = createMockCoverageClient({
         stopJSCoverage: vi.fn().mockResolvedValue(mockCoverage),
-        close: vi.fn().mockResolvedValue(undefined),
-      }
+      })
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
@@ -146,11 +140,9 @@ describe('ServerCoverageCollector', () => {
 
     it('should handle collection errors gracefully', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const mockClient = {
-        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+      const mockClient = createMockCoverageClient({
         stopJSCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
-        close: vi.fn().mockResolvedValue(undefined),
-      }
+      })
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
