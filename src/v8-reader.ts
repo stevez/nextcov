@@ -60,14 +60,35 @@ export class V8CoverageReader {
   /**
    * Read coverage from Playwright format
    * Playwright returns an array of { url, source?, functions } objects
+   *
+   * In dev mode, entries may also include sourceMapData and originalPath
+   * which need to be preserved for processing.
    */
-  readFromPlaywright(coverage: Array<{ url: string; source?: string; functions: unknown[] }>): V8Coverage {
-    const result: V8ScriptCoverage[] = coverage.map((entry, index) => ({
-      scriptId: String(index),
-      url: entry.url,
-      functions: entry.functions as V8ScriptCoverage['functions'],
-      source: entry.source,
-    }))
+  readFromPlaywright(coverage: Array<{
+    url: string
+    source?: string
+    functions: unknown[]
+    sourceMapData?: unknown
+    originalPath?: string
+  }>): V8Coverage {
+    const result: V8ScriptCoverage[] = coverage.map((entry, index) => {
+      const script: V8ScriptCoverage = {
+        scriptId: String(index),
+        url: entry.url,
+        functions: entry.functions as V8ScriptCoverage['functions'],
+        source: entry.source,
+      }
+
+      // Preserve dev mode source map data
+      if (entry.sourceMapData) {
+        ;(script as any).sourceMapData = entry.sourceMapData
+      }
+      if (entry.originalPath) {
+        ;(script as any).originalPath = entry.originalPath
+      }
+
+      return script
+    })
 
     return { result }
   }

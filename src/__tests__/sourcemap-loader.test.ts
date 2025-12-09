@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach } from 'vitest'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'

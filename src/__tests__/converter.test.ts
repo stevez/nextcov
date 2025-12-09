@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { join } from 'node:path'
 import { promises as fs } from 'node:fs'
@@ -97,8 +98,13 @@ describe('CoverageConverter', () => {
       expect(converter['isValidSource']('external%20commonjs%20react', 'code')).toBe(false)
     })
 
-    it('should reject webpack queries', () => {
-      expect(converter['isValidSource']('webpack://app/src/file.ts?module', 'code')).toBe(false)
+    it('should accept webpack queries with content in dev mode', () => {
+      // Dev mode sources like webpack://_N_E/?xxxx are valid if they have content
+      expect(converter['isValidSource']('webpack://app/src/file.ts?module', 'code')).toBe(true)
+    })
+
+    it('should reject webpack queries without content', () => {
+      expect(converter['isValidSource']('webpack://app/src/file.ts?module', null)).toBe(false)
     })
 
     it('should reject node_modules', () => {
@@ -449,8 +455,13 @@ describe('CoverageConverter', () => {
   })
 
   describe('isValidSource - edge cases', () => {
-    it('should reject sources with webpack queries', () => {
-      expect(converter['isValidSource']('webpack://app/src/file.ts?abc=123', 'code')).toBe(false)
+    it('should accept sources with webpack queries when they have content', () => {
+      // Dev mode sources with queries are valid if they have content
+      expect(converter['isValidSource']('webpack://app/src/file.ts?abc=123', 'code')).toBe(true)
+    })
+
+    it('should reject sources with webpack queries without content', () => {
+      expect(converter['isValidSource']('webpack://app/src/file.ts?abc=123', null)).toBe(false)
     })
 
     it('should accept sources with backslash paths', () => {

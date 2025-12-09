@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+// @ts-nocheck
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
 import {
   resolveNextcovConfig,

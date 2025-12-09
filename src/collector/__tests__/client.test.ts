@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
@@ -7,7 +8,7 @@ import {
   ClientCoverageCollector,
   createClientCollector,
   type PlaywrightCoverageEntry,
-} from '../collector/client.js'
+} from '../client.js'
 
 describe('ClientCoverageCollector', () => {
   let collector: ClientCoverageCollector

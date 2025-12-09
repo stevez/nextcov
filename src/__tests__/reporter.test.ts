@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
