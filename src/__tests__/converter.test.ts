@@ -1094,4 +1094,366 @@ describe('CoverageConverter', () => {
       expect(typeof result.files).toBe('function')
     })
   })
+
+  describe('fixFunctionDeclarationStatements', () => {
+    it('should fix statement with 0 hits when function on same line has calls', () => {
+      const testFile = '/project/src/api.ts'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // Simulate: export async function getAllTodos() { ... }
+      // Statement at line 23 has 0 hits, but function at line 23 has 1 call
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 23, column: 0 }, end: { line: 23, column: 50 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'getAllTodos',
+              decl: { start: { line: 23, column: 0 }, end: { line: 23, column: 50 } },
+              loc: { start: { line: 23, column: 0 }, end: { line: 30, column: 1 } },
+              line: 23,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0 }, // Statement has 0 hits
+          f: { '0': 1 }, // Function was called once
+          b: {},
+        },
+      })
+
+      converter['fixFunctionDeclarationStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Statement should now have the function's call count
+      expect(data.s['0']).toBe(1)
+    })
+
+    it('should fix arrow function variable declaration statement', () => {
+      const testFile = '/project/src/api.ts'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // Simulate: export const getHeaders = async () => { ... }
+      // Statement for variable declaration at line 14 has 0 hits
+      // Arrow function at line 14 has 1 call
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 14, column: 0 }, end: { line: 14, column: 60 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'getHeaders',
+              decl: { start: { line: 14, column: 20 }, end: { line: 14, column: 60 } },
+              loc: { start: { line: 14, column: 20 }, end: { line: 20, column: 1 } },
+              line: 14,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0 }, // Statement has 0 hits
+          f: { '0': 3 }, // Function was called 3 times
+          b: {},
+        },
+      })
+
+      converter['fixFunctionDeclarationStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Statement should now have the function's call count
+      expect(data.s['0']).toBe(3)
+    })
+
+    it('should not modify statement that already has hits', () => {
+      const testFile = '/project/src/api.ts'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'myFunc',
+              decl: { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+              loc: { start: { line: 10, column: 0 }, end: { line: 15, column: 1 } },
+              line: 10,
+            },
+          },
+          branchMap: {},
+          s: { '0': 5 }, // Statement already has 5 hits
+          f: { '0': 3 }, // Function was called 3 times
+          b: {},
+        },
+      })
+
+      converter['fixFunctionDeclarationStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Statement should keep its original count (not overwritten)
+      expect(data.s['0']).toBe(5)
+    })
+
+    it('should not fix statement when function has 0 calls', () => {
+      const testFile = '/project/src/api.ts'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'unusedFunc',
+              decl: { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+              loc: { start: { line: 10, column: 0 }, end: { line: 15, column: 1 } },
+              line: 10,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0 }, // Statement has 0 hits
+          f: { '0': 0 }, // Function was never called
+          b: {},
+        },
+      })
+
+      converter['fixFunctionDeclarationStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Statement should remain 0 since function wasn't called
+      expect(data.s['0']).toBe(0)
+    })
+
+    it('should not fix statement on different line than function', () => {
+      const testFile = '/project/src/api.ts'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 5, column: 0 }, end: { line: 5, column: 20 } }, // Different line
+          },
+          fnMap: {
+            '0': {
+              name: 'myFunc',
+              decl: { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+              loc: { start: { line: 10, column: 0 }, end: { line: 15, column: 1 } },
+              line: 10,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0 }, // Statement on line 5 has 0 hits
+          f: { '0': 1 }, // Function on line 10 was called
+          b: {},
+        },
+      })
+
+      converter['fixFunctionDeclarationStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Statement should remain 0 since it's on a different line
+      expect(data.s['0']).toBe(0)
+    })
+
+    it('should handle multiple functions on different lines', () => {
+      const testFile = '/project/src/api.ts'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+            '1': { start: { line: 20, column: 0 }, end: { line: 20, column: 30 } },
+            '2': { start: { line: 30, column: 0 }, end: { line: 30, column: 30 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'func1',
+              decl: { start: { line: 10, column: 0 }, end: { line: 10, column: 30 } },
+              loc: { start: { line: 10, column: 0 }, end: { line: 15, column: 1 } },
+              line: 10,
+            },
+            '1': {
+              name: 'func2',
+              decl: { start: { line: 20, column: 0 }, end: { line: 20, column: 30 } },
+              loc: { start: { line: 20, column: 0 }, end: { line: 25, column: 1 } },
+              line: 20,
+            },
+            '2': {
+              name: 'func3',
+              decl: { start: { line: 30, column: 0 }, end: { line: 30, column: 30 } },
+              loc: { start: { line: 30, column: 0 }, end: { line: 35, column: 1 } },
+              line: 30,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0, '1': 0, '2': 0 }, // All statements have 0 hits
+          f: { '0': 1, '1': 0, '2': 5 }, // func1 called once, func2 never, func3 called 5 times
+          b: {},
+        },
+      })
+
+      converter['fixFunctionDeclarationStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      expect(data.s['0']).toBe(1) // Fixed from func1
+      expect(data.s['1']).toBe(0) // Not fixed - func2 has 0 calls
+      expect(data.s['2']).toBe(5) // Fixed from func3
+    })
+  })
+
+  describe('fixExportDefaultStatements', () => {
+    let testDir: string
+    let testConverter: CoverageConverter
+
+    beforeEach(async () => {
+      testDir = join(tmpdir(), `fix-export-default-test-${Date.now()}`)
+      await fs.mkdir(testDir, { recursive: true })
+      testConverter = new CoverageConverter(testDir, new SourceMapLoader(testDir))
+    })
+
+    afterEach(async () => {
+      try {
+        await fs.rm(testDir, { recursive: true, force: true })
+      } catch {
+        // Ignore cleanup errors
+      }
+    })
+
+    it('should fix export default statement when exported function was called', async () => {
+      const testFile = join(testDir, 'src', 'TodoList.tsx')
+      await fs.mkdir(join(testDir, 'src'), { recursive: true })
+      await fs.writeFile(
+        testFile,
+        `const TodoList = ({ tasks }) => {
+  return <div>{tasks.length}</div>;
+};
+
+export default TodoList;
+`
+      )
+
+      const libCoverage = require('istanbul-lib-coverage')
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 1, column: 0 }, end: { line: 3, column: 1 } },
+            '1': { start: { line: 5, column: 0 }, end: { line: 5, column: 23 } }, // export default
+          },
+          fnMap: {
+            '0': {
+              name: 'TodoList',
+              decl: { start: { line: 1, column: 6 }, end: { line: 1, column: 14 } },
+              loc: { start: { line: 1, column: 0 }, end: { line: 3, column: 1 } },
+              line: 1,
+            },
+          },
+          branchMap: {},
+          s: { '0': 14, '1': 0 }, // Function executed 14x, export default 0x
+          f: { '0': 14 },
+          b: {},
+        },
+      })
+
+      await testConverter['fixExportDefaultStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Export default should now have the function's call count
+      expect(data.s['1']).toBe(14)
+    })
+
+    it('should not fix export default when function was not called', async () => {
+      const testFile = join(testDir, 'src', 'Unused.tsx')
+      await fs.mkdir(join(testDir, 'src'), { recursive: true })
+      await fs.writeFile(
+        testFile,
+        `const Unused = () => {
+  return <div>Unused</div>;
+};
+
+export default Unused;
+`
+      )
+
+      const libCoverage = require('istanbul-lib-coverage')
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 1, column: 0 }, end: { line: 3, column: 1 } },
+            '1': { start: { line: 5, column: 0 }, end: { line: 5, column: 21 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'Unused',
+              decl: { start: { line: 1, column: 6 }, end: { line: 1, column: 12 } },
+              loc: { start: { line: 1, column: 0 }, end: { line: 3, column: 1 } },
+              line: 1,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0, '1': 0 }, // Nothing was called
+          f: { '0': 0 },
+          b: {},
+        },
+      })
+
+      await testConverter['fixExportDefaultStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Export default should remain 0 since function wasn't called
+      expect(data.s['1']).toBe(0)
+    })
+
+    it('should not fix non-export-default statements', async () => {
+      const testFile = join(testDir, 'src', 'api.ts')
+      await fs.mkdir(join(testDir, 'src'), { recursive: true })
+      await fs.writeFile(
+        testFile,
+        `const baseUrl = "http://localhost:3001";
+
+export const getData = async () => {
+  return fetch(baseUrl);
+};
+`
+      )
+
+      const libCoverage = require('istanbul-lib-coverage')
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {
+            '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 40 } }, // const baseUrl
+            '1': { start: { line: 3, column: 0 }, end: { line: 5, column: 1 } },
+          },
+          fnMap: {
+            '0': {
+              name: 'getData',
+              decl: { start: { line: 3, column: 13 }, end: { line: 3, column: 20 } },
+              loc: { start: { line: 3, column: 0 }, end: { line: 5, column: 1 } },
+              line: 3,
+            },
+          },
+          branchMap: {},
+          s: { '0': 0, '1': 10 }, // baseUrl not covered, getData covered
+          f: { '0': 10 },
+          b: {},
+        },
+      })
+
+      await testConverter['fixExportDefaultStatements'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // baseUrl should remain 0 since it's not an export default
+      expect(data.s['0']).toBe(0)
+    })
+  })
 })
