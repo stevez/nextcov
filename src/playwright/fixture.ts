@@ -14,16 +14,16 @@ import {
   DEFAULT_INCLUDE_PATTERNS,
   DEFAULT_EXCLUDE_PATTERNS,
   DEFAULT_REPORTERS,
+  type NextcovConfig,
   type ResolvedNextcovConfig,
   type ResolvedDevModeOptions,
 } from '../config.js'
 import {
-  saveServerCoverage,
-  readAllClientCoverage,
   saveClientCoverage,
-  cleanCoverageDir,
   filterAppCoverage,
   stopServerCoverageAutoDetect,
+  ClientCoverageCollector,
+  ServerCoverageCollector,
   type V8CoverageEntry,
   type PlaywrightCoverageEntry,
   type DevServerCoverageEntry,
@@ -34,6 +34,8 @@ export interface PlaywrightCoverageOptions {
   projectRoot?: string
   /** Output directory for coverage reports (default: './coverage/e2e') */
   outputDir?: string
+  /** Next.js build directory (default: '.next') */
+  buildDir?: string
   /** Source root relative to project root (default: './src') */
   sourceRoot?: string
   /** Glob patterns to include */
@@ -55,6 +57,7 @@ export interface PlaywrightCoverageOptions {
 const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
   projectRoot: process.cwd(),
   outputDir: DEFAULT_NEXTCOV_CONFIG.outputDir,
+  buildDir: DEFAULT_NEXTCOV_CONFIG.buildDir,
   sourceRoot: DEFAULT_NEXTCOV_CONFIG.sourceRoot,
   include: DEFAULT_INCLUDE_PATTERNS,
   exclude: DEFAULT_EXCLUDE_PATTERNS,
@@ -96,6 +99,9 @@ export async function finalizeCoverage(
 ): Promise<CoverageResult | null> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
 
+  // Derive cacheDir from outputDir
+  const cacheDir = (options as ResolvedNextcovConfig)?.cacheDir || path.join(opts.outputDir, '.cache')
+
   console.log('\n✅ E2E tests complete')
 
   // Step 1: Collect server-side coverage via CDP (before server shuts down)
@@ -117,18 +123,25 @@ export async function finalizeCoverage(
         console.log('  Using inline source maps (dev mode)')
       }
     }
+  }
 
-    // Save server coverage for production mode (dev mode has inline source maps)
-    if (!detectedDevMode && serverCoverage.length > 0) {
-      await saveServerCoverage(serverCoverage as V8CoverageEntry[])
-    }
+  // Resolve buildDir: use .next for dev mode, otherwise use configured value
+  const resolvedBuildDir = detectedDevMode ? '.next' : opts.buildDir
+
+  // Create collectors with explicit config to avoid singleton issues
+  const clientCollector = new ClientCoverageCollector({ cacheDir })
+  const serverCollector = new ServerCoverageCollector({ cacheDir, buildDir: resolvedBuildDir })
+
+  // Save server coverage for production mode (dev mode has inline source maps)
+  if (!detectedDevMode && serverCoverage.length > 0) {
+    await serverCollector.save(serverCoverage as V8CoverageEntry[])
   }
 
   // Step 2: Read client-side coverage collected during tests
   let clientCoverage: PlaywrightCoverageEntry[] = []
   if (opts.collectClient) {
     console.log('📊 Reading client-side coverage...')
-    clientCoverage = await readAllClientCoverage()
+    clientCoverage = await clientCollector.readAllClientCoverage()
     console.log(`  ✓ Found ${clientCoverage.length} client-side coverage entries`)
   }
 
@@ -142,7 +155,7 @@ export async function finalizeCoverage(
   if (allCoverage.length === 0) {
     console.log('  ⚠️ No coverage to process')
     if (opts.cleanup) {
-      await cleanCoverageDir()
+      await clientCollector.cleanCoverageDir()
     }
     return null
   }
@@ -153,6 +166,7 @@ export async function finalizeCoverage(
   try {
     const processor = new CoverageProcessor(opts.projectRoot, {
       outputDir: opts.outputDir,
+      nextBuildDir: resolvedBuildDir,
       sourceRoot: opts.sourceRoot,
       include: opts.include,
       exclude: opts.exclude,
@@ -169,14 +183,14 @@ export async function finalizeCoverage(
 
     // Step 4: Clean up temporary coverage files
     if (opts.cleanup) {
-      await cleanCoverageDir()
+      await clientCollector.cleanCoverageDir()
     }
 
     return result
   } catch (error) {
     console.error('❌ Error processing coverage:', error)
     if (opts.cleanup) {
-      await cleanCoverageDir()
+      await clientCollector.cleanCoverageDir()
     }
     return null
   }
@@ -208,7 +222,8 @@ export async function finalizeCoverage(
 export async function collectClientCoverage(
   page: Page,
   testInfo: TestInfo,
-  use: () => Promise<void>
+  use: () => Promise<void>,
+  config?: NextcovConfig
 ): Promise<void> {
   await page.coverage.startJSCoverage({ resetOnNavigation: false })
 
@@ -219,6 +234,14 @@ export async function collectClientCoverage(
 
   if (appCoverage.length > 0) {
     const testId = `${testInfo.workerIndex}-${testInfo.testId.replace(/[^a-zA-Z0-9]/g, '-')}`
-    await saveClientCoverage(testId, appCoverage)
+    // Derive cacheDir from outputDir in config
+    const cacheDir = config?.outputDir ? path.join(config.outputDir, '.cache') : undefined
+    if (cacheDir) {
+      // Create collector with explicit cacheDir to avoid singleton issues across worker processes
+      const collector = new ClientCoverageCollector({ cacheDir })
+      await collector.saveClientCoverage(testId, appCoverage)
+    } else {
+      await saveClientCoverage(testId, appCoverage)
+    }
   }
 }

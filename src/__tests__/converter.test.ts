@@ -1,10 +1,27 @@
 // @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { CoverageConverter } from '../converter.js'
 import { SourceMapLoader } from '../sourcemap-loader.js'
+
+// Mock existsSync to return true for test paths with src/
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    existsSync: vi.fn((path) => {
+      // For test paths containing src/, return true
+      if (typeof path === 'string' && path.includes('src')) {
+        return true
+      }
+      // For other paths, return false
+      return false
+    }),
+  }
+})
 
 const isWindows = process.platform === 'win32'
 const projectRoot = isWindows ? 'C:/project' : '/project'

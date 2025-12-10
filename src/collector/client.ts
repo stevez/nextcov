@@ -128,10 +128,21 @@ export class ClientCoverageCollector {
 // Convenience functions for backwards compatibility
 
 let defaultCollector: ClientCoverageCollector | null = null
+let defaultCollectorConfig: Partial<ClientCollectorConfig> | undefined = undefined
+
+/**
+ * Set the config for the default collector
+ * Call this before using any convenience functions to override defaults
+ */
+export function setDefaultCollectorConfig(config: Partial<ClientCollectorConfig>): void {
+  defaultCollectorConfig = config
+  // Reset collector so it gets recreated with new config
+  defaultCollector = null
+}
 
 function getDefaultCollector(): ClientCoverageCollector {
   if (!defaultCollector) {
-    defaultCollector = new ClientCoverageCollector()
+    defaultCollector = new ClientCoverageCollector(defaultCollectorConfig)
   }
   return defaultCollector
 }
