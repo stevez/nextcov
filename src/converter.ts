@@ -79,6 +79,15 @@ export class CoverageConverter {
     // This handles source map artifacts where arithmetic expressions get mapped as branches
     await this.fixSpuriousBranches(normalizedMap)
 
+    // Fix function declaration statements that have 0 hits but function has calls
+    // This handles Next.js 15's TURBOPACK_DISABLE_EXPORT_MERGING comment insertion
+    // which causes V8 to not properly track function declaration coverage
+    this.fixFunctionDeclarationStatements(normalizedMap)
+
+    // Fix export default statements that have 0 hits but the exported function was called
+    // V8 doesn't track module-level variable assignments like `export default MyComponent;`
+    await this.fixExportDefaultStatements(normalizedMap)
+
     return normalizedMap
   }
 
@@ -362,6 +371,173 @@ export class CoverageConverter {
     }
 
     return lines
+  }
+
+  /**
+   * Fix function declaration statements that have 0 hits but the function has calls.
+   *
+   * Next.js 15 inserts TURBOPACK_DISABLE_EXPORT_MERGING comments in server actions:
+   * - `async function /*#__TURBOPACK...*\/ getAllTodos() {`
+   * - `const /*#__TURBOPACK...*\/ getHeaders = async () => {`
+   *
+   * This causes V8 to not properly track the function declaration statement coverage.
+   * We fix this by copying the function call count to matching statement entries.
+   */
+  private fixFunctionDeclarationStatements(coverageMap: CoverageMap): void {
+    for (const filePath of coverageMap.files()) {
+      const fileCoverage = coverageMap.fileCoverageFor(filePath)
+      // Access the internal data directly to modify in place
+      // (toJSON returns a copy, which would cause double-counting when merged back)
+      const data = (fileCoverage as unknown as { data: CoverageMapData[string] }).data
+      const statementMap = data.statementMap as Record<
+        string,
+        {
+          start: { line: number; column: number }
+          end: { line: number; column: number | null }
+        }
+      >
+      const fnMap = data.fnMap as Record<
+        string,
+        {
+          name: string
+          decl: {
+            start: { line: number; column: number }
+            end: { line: number; column: number | null }
+          }
+          loc: {
+            start: { line: number; column: number }
+            end: { line: number; column: number | null }
+          }
+          line: number
+        }
+      >
+      const s = data.s as Record<string, number>
+      const f = data.f as Record<string, number>
+
+      // For each function with calls, find statements on the same line that have 0 hits
+      for (const [fnId, fn] of Object.entries(fnMap)) {
+        const fnCalls = f[fnId] || 0
+        if (fnCalls === 0) continue // No need to fix if function wasn't called
+
+        const fnLine = fn.decl?.start?.line
+        if (fnLine === undefined) continue
+
+        // Find statements on the same line with 0 hits
+        for (const [stmtId, stmt] of Object.entries(statementMap)) {
+          const stmtLine = stmt.start?.line
+          if (stmtLine !== fnLine) continue
+
+          const currentHits = s[stmtId] || 0
+          if (currentHits === 0) {
+            // Statement has 0 hits but function on same line was called - fix it
+            s[stmtId] = fnCalls
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Fix export default statements that have 0 hits but the exported function was called.
+   *
+   * V8 doesn't track module-level variable assignments. When Webpack compiles:
+   *   `export default TodoList;`
+   * It becomes:
+   *   `const components_TodoList = (TodoList);`
+   *
+   * This module-level assignment isn't tracked by V8 profiler, so it shows 0 coverage.
+   * We fix this by checking if the export statement is for a function that was called.
+   */
+  private async fixExportDefaultStatements(coverageMap: CoverageMap): Promise<void> {
+    const { promises: fs } = await import('node:fs')
+
+    for (const filePath of coverageMap.files()) {
+      const fileCoverage = coverageMap.fileCoverageFor(filePath)
+      const data = (fileCoverage as unknown as { data: CoverageMapData[string] }).data
+      const statementMap = data.statementMap as Record<
+        string,
+        {
+          start: { line: number; column: number }
+          end: { line: number; column: number | null }
+        }
+      >
+      const fnMap = data.fnMap as Record<
+        string,
+        {
+          name: string
+          decl: { start: { line: number; column: number } }
+          loc: { start: { line: number; column: number } }
+          line: number
+        }
+      >
+      const s = data.s as Record<string, number>
+      const f = data.f as Record<string, number>
+
+      // Check if any function was called in this file
+      let maxFunctionCalls = 0
+      for (const fnId of Object.keys(fnMap)) {
+        maxFunctionCalls = Math.max(maxFunctionCalls, f[fnId] || 0)
+      }
+      if (maxFunctionCalls === 0) continue // No functions were called, skip
+
+      // Read the source file to find export default statements
+      let sourceCode: string
+      try {
+        sourceCode = await fs.readFile(filePath, 'utf-8')
+      } catch {
+        continue // Can't read file, skip
+      }
+
+      const lines = sourceCode.split('\n')
+
+      // Find statements with 0 hits and check if they're export defaults
+      for (const [stmtId, stmt] of Object.entries(statementMap)) {
+        const currentHits = s[stmtId] || 0
+        if (currentHits > 0) continue // Already covered
+
+        const stmtLine = stmt.start?.line
+        if (!stmtLine || stmtLine > lines.length) continue
+
+        // Get the source line (1-indexed)
+        const sourceLine = lines[stmtLine - 1]
+        if (!sourceLine) continue
+
+        // Check if this line is an export default statement
+        const exportDefaultMatch = sourceLine.match(/export\s+default\s+(\w+)\s*;?\s*$/)
+        if (!exportDefaultMatch) continue
+
+        const exportedName = exportDefaultMatch[1]
+
+        // Check if this exported name matches any function that was called
+        // Look for a function/const with this name on a line with coverage
+        for (const [fnId, fn] of Object.entries(fnMap)) {
+          const fnCalls = f[fnId] || 0
+          if (fnCalls === 0) continue
+
+          // Check if the function name matches
+          // Also check the line to see if it defines this identifier
+          const fnLine = fn.line || fn.decl?.start?.line
+          if (!fnLine || fnLine > lines.length) continue
+
+          const fnSourceLine = lines[fnLine - 1]
+          if (!fnSourceLine) continue
+
+          // Check if this line defines the exported identifier
+          // Patterns: `const TodoList = `, `function TodoList`, `const TodoList: `
+          const definesExport =
+            fnSourceLine.includes(`const ${exportedName}`) ||
+            fnSourceLine.includes(`let ${exportedName}`) ||
+            fnSourceLine.includes(`function ${exportedName}`) ||
+            fnSourceLine.includes(`class ${exportedName}`)
+
+          if (definesExport) {
+            // The exported identifier was called - mark export statement as covered
+            s[stmtId] = fnCalls
+            break
+          }
+        }
+      }
+    }
   }
 
   /**
