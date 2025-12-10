@@ -69,7 +69,7 @@ npm install nextcov --save-dev
 ## Requirements
 
 - Node.js >= 20
-- Next.js 14+
+- Next.js 14+ (including Next.js 15)
 - Playwright 1.40+
 
 ### Peer Dependencies
@@ -145,6 +145,21 @@ type PlaywrightConfigWithNextcov = Parameters<typeof defineConfig>[0] & {
   nextcov?: NextcovConfig
 }
 
+// Export nextcov config separately for use in global-setup/teardown
+export const nextcov: NextcovConfig = {
+  cdpPort: 9230,
+  buildDir: '.next',           // Next.js build output directory (use 'dist' if customized)
+  outputDir: 'coverage/e2e',
+  sourceRoot: './src',
+  include: ['src/**/*.{ts,tsx,js,jsx}'],
+  exclude: [
+    'src/**/__tests__/**',
+    'src/**/*.test.{ts,tsx}',
+    'src/**/*.spec.{ts,tsx}',
+  ],
+  reporters: ['html', 'lcov', 'json', 'text-summary'],
+}
+
 const config: PlaywrightConfigWithNextcov = {
   testDir: './e2e',
   globalSetup: './e2e/global-setup.ts',
@@ -158,20 +173,7 @@ const config: PlaywrightConfigWithNextcov = {
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-
-  // Nextcov configuration
-  nextcov: {
-    cdpPort: 9230,
-    outputDir: 'coverage/e2e',
-    sourceRoot: './src',
-    include: ['src/**/*.{ts,tsx,js,jsx}'],
-    exclude: [
-      'src/**/__tests__/**',
-      'src/**/*.test.{ts,tsx}',
-      'src/**/*.spec.{ts,tsx}',
-    ],
-    reporters: ['html', 'lcov', 'json', 'text-summary'],
-  },
+  nextcov,
 }
 
 export default defineConfig(config)
@@ -209,13 +211,12 @@ import { startServerCoverageAutoDetect, loadNextcovConfig } from 'nextcov'
 export default async function globalSetup() {
   // Load config from playwright.config.ts
   const config = await loadNextcovConfig(
-    path.join(process.cwd(), 'e2e', 'playwright.config.ts')
+    path.join(process.cwd(), 'playwright.config.ts')
   )
 
   // Start server coverage collection with auto-detection (dev vs production mode)
-  await startServerCoverageAutoDetect({
-    cdpPort: config.cdpPort,
-  })
+  // Pass the full config to use buildDir, sourceRoot, etc.
+  await startServerCoverageAutoDetect(config)
 }
 ```
 
@@ -232,7 +233,7 @@ import { loadNextcovConfig } from 'nextcov'
 export default async function globalTeardown(_config: FullConfig) {
   // Load config from playwright.config.ts
   const config = await loadNextcovConfig(
-    path.join(process.cwd(), 'e2e', 'playwright.config.ts')
+    path.join(process.cwd(), 'playwright.config.ts')
   )
   await finalizeCoverage(config)
 }
@@ -409,6 +410,7 @@ Finalizes coverage collection and generates reports. Call in globalTeardown.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `projectRoot` | `string` | `process.cwd()` | Project root directory |
+| `buildDir` | `string` | `'.next'` | Next.js build output directory |
 | `outputDir` | `string` | `'coverage/e2e'` | Output directory for reports |
 | `sourceRoot` | `string` | `'./src'` | Source root relative to project |
 | `include` | `string[]` | `['src/**/*']` | Glob patterns to include |
@@ -572,6 +574,44 @@ const merged = await merger.merge(map1, map2, map3)
 - The dev server worker process may not have started yet - add a delay after starting dev server
 - Hot reload may have cleared scripts - ensure tests run after page is fully loaded
 - Check console for "Dev mode detected on port ..." message
+
+### Slow Coverage Processing
+
+If coverage processing takes a very long time (30+ seconds), you may have large bundled dependencies. V8 coverage works on the bundled output, so large libraries bundled into your app will slow down source map processing.
+
+**Common culprits:**
+- `react-icons` - Barrel exports bundle entire icon sets even when importing a few icons
+- Large UI component libraries
+- Unoptimized imports from `lodash`, `@mui/icons-material`, etc.
+
+**Solutions:**
+1. **Use direct imports** instead of barrel imports:
+   ```typescript
+   // Bad - bundles entire icon set
+   import { FiEdit } from 'react-icons/fi'
+
+   // Good - import only what you need
+   import FiEdit from 'react-icons/fi/FiEdit'
+   ```
+
+2. **Use inline SVGs** for icons you use frequently:
+   ```tsx
+   // Best for small icon sets - zero runtime cost
+   export const EditIcon = ({ size = 24 }) => (
+     <svg width={size} height={size} viewBox="0 0 24 24">
+       <path d="..." />
+     </svg>
+   )
+   ```
+
+3. **Enable optimizePackageImports** in Next.js config:
+   ```js
+   experimental: {
+     optimizePackageImports: ['react-icons', 'lodash'],
+   }
+   ```
+
+4. **Check your bundle size**: If `.next/server/app/page.js` is several MB, you likely have bundle bloat. A lean app should have page bundles under 500KB.
 
 ## License
 
