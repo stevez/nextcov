@@ -16,6 +16,7 @@
 
 import { ServerCoverageCollector, type V8CoverageEntry } from './server.js'
 import { DevModeServerCollector, type DevServerCoverageEntry } from './dev-server.js'
+import { DEFAULT_NEXTCOV_CONFIG } from '../config.js'
 
 export interface AutoDetectConfig {
   /** Base CDP port (default: 9230). Will also try port + 1 for dev mode. */
@@ -66,6 +67,7 @@ export async function startServerCoverageAutoDetect(
 ): Promise<{ isDevMode: boolean; port: number } | null> {
   const basePort = config?.cdpPort ?? 9230
   const devPort = basePort + 1
+  const cacheDir = config?.cacheDir ?? DEFAULT_NEXTCOV_CONFIG.cacheDir
 
   console.log(`📊 Auto-detecting server coverage mode...`)
 
@@ -97,7 +99,7 @@ export async function startServerCoverageAutoDetect(
 
     const collector = new ServerCoverageCollector({
       cdpPort: basePort,
-      cacheDir: config?.cacheDir ?? 'coverage/e2e/.cache',
+      cacheDir,
       buildDir: config?.buildDir ?? '.next',
     })
 
@@ -183,7 +185,7 @@ export async function collectServerCoverageAutoDetect(
 
     const collector = new ServerCoverageCollector({
       cdpPort: basePort,
-      cacheDir: config?.cacheDir ?? 'coverage/e2e/.cache',
+      cacheDir: config?.cacheDir ?? DEFAULT_NEXTCOV_CONFIG.cacheDir,
       buildDir: config?.buildDir ?? '.next',
     })
 
@@ -225,7 +227,7 @@ export async function autoDetectServerCollector(
   if (basePortConnectable) {
     const collector = new ServerCoverageCollector({
       cdpPort: basePort,
-      cacheDir: config?.cacheDir ?? 'coverage/e2e/.cache',
+      cacheDir: config?.cacheDir ?? DEFAULT_NEXTCOV_CONFIG.cacheDir,
       buildDir: config?.buildDir ?? '.next',
     })
     return { port: basePort, isDevMode: false, collector }

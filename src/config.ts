@@ -243,9 +243,12 @@ export async function loadNextcovConfig(configPath?: string): Promise<ResolvedNe
     // Dynamic import of the playwright config
     const configUrl = `file://${searchPath.replace(/\\/g, '/')}`
     const module = await import(configUrl)
-    const config = module.default as { nextcov?: NextcovConfig }
 
-    cachedConfig = resolveNextcovConfig(config?.nextcov)
+    const nextcovConfig: NextcovConfig | undefined =
+      module.nextcov ||
+      (module.default as { nextcov?: NextcovConfig })?.nextcov
+
+    cachedConfig = resolveNextcovConfig(nextcovConfig)
     cachedConfigPath = searchPath
     return cachedConfig
   } catch {

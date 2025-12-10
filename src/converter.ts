@@ -5,6 +5,7 @@
  * This is the core of the coverage processing, mirroring Vitest's approach.
  */
 
+import { existsSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { parse } from 'acorn'
 import { parse as babelParse } from '@babel/parser'
@@ -20,11 +21,25 @@ export class CoverageConverter {
   private sourceMapLoader: SourceMapLoader
   private sourceFilter?: SourceFilter
   private projectRoot: string
+  private fileExistsCache: Map<string, boolean> = new Map()
 
   constructor(projectRoot: string, sourceMapLoader: SourceMapLoader, sourceFilter?: SourceFilter) {
     this.projectRoot = projectRoot
     this.sourceMapLoader = sourceMapLoader
     this.sourceFilter = sourceFilter
+  }
+
+  /**
+   * Check if a file exists, with caching for performance
+   */
+  private fileExists(filePath: string): boolean {
+    const cached = this.fileExistsCache.get(filePath)
+    if (cached !== undefined) {
+      return cached
+    }
+    const exists = existsSync(filePath)
+    this.fileExistsCache.set(filePath, exists)
+    return exists
   }
 
   /**
@@ -412,6 +427,13 @@ export class CoverageConverter {
         if (/^[a-z]:/.test(absolutePath)) {
           absolutePath = absolutePath.charAt(0).toUpperCase() + absolutePath.slice(1)
         }
+      }
+
+      // Check if the file actually exists on disk
+      // This filters out phantom files from Next.js internal source maps
+      // (e.g., paths like ../../src/client/... that resolve but don't exist)
+      if (!this.fileExists(absolutePath)) {
+        return null
       }
 
       return absolutePath

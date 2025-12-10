@@ -11,6 +11,7 @@ export {
   // Client collector
   ClientCoverageCollector,
   createClientCollector,
+  setDefaultCollectorConfig,
   initCoverageDir,
   saveClientCoverage,
   readAllClientCoverage,
