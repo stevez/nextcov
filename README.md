@@ -44,9 +44,9 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 
 - **Next.js focused** - Built specifically for Next.js applications
 - **Client + Server coverage** - Collects coverage from both browser and Node.js server
-- **Dev mode support** - Works with `next dev` using inline source maps (no build required)
+- **Dev mode support** - Works with `next dev` (no build required)
 - **Production mode support** - Works with `next build && next start` using external source maps
-- **Auto-detection** - Automatically detects dev vs production mode
+- **V8 native coverage** - Uses Node.js built-in `NODE_V8_COVERAGE` for accurate server coverage
 - **Source map support** - Maps bundled code back to original TypeScript/JSX
 - **Vitest compatible** - Output merges seamlessly with Vitest coverage reports
 - **Playwright integration** - Simple fixtures for automatic coverage collection
@@ -96,7 +96,6 @@ The example project demonstrates how nextcov bridges the coverage gap:
 
 - [e2e/playwright.config.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/playwright.config.ts) - Playwright config with nextcov settings
 - [e2e/fixtures.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/fixtures.ts) - Coverage collection fixture
-- [e2e/global-setup.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-setup.ts) - Server coverage setup
 - [e2e/global-teardown.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-teardown.ts) - Coverage finalization
 - [scripts/merge-coverage.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/scripts/merge-coverage.ts) - Merge unit + E2E coverage
 - [next.config.js](https://github.com/stevez/restaurant-reviews-platform/blob/main/next.config.js) - Next.js source map configuration
@@ -145,7 +144,7 @@ type PlaywrightConfigWithNextcov = Parameters<typeof defineConfig>[0] & {
   nextcov?: NextcovConfig
 }
 
-// Export nextcov config separately for use in global-setup/teardown
+// Export nextcov config separately for use in global-teardown
 export const nextcov: NextcovConfig = {
   cdpPort: 9230,
   buildDir: '.next',           // Next.js build output directory (use 'dist' if customized)
@@ -162,7 +161,6 @@ export const nextcov: NextcovConfig = {
 
 const config: PlaywrightConfigWithNextcov = {
   testDir: './e2e',
-  globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
   use: {
     baseURL: 'http://localhost:3000',
@@ -200,27 +198,7 @@ export const test = base.extend({
 export { expect }
 ```
 
-### 4. Add Global Setup
-
-Create `e2e/global-setup.ts`:
-
-```typescript
-import * as path from 'path'
-import { startServerCoverageAutoDetect, loadNextcovConfig } from 'nextcov'
-
-export default async function globalSetup() {
-  // Load config from playwright.config.ts
-  const config = await loadNextcovConfig(
-    path.join(process.cwd(), 'playwright.config.ts')
-  )
-
-  // Start server coverage collection with auto-detection (dev vs production mode)
-  // Pass the full config to use buildDir, sourceRoot, etc.
-  await startServerCoverageAutoDetect(config)
-}
-```
-
-### 5. Add Global Teardown
+### 4. Add Global Teardown
 
 Create `e2e/global-teardown.ts`:
 
@@ -239,7 +217,7 @@ export default async function globalTeardown(_config: FullConfig) {
 }
 ```
 
-### 6. Write Tests Using the Fixture
+### 5. Write Tests Using the Fixture
 
 In your test files (`e2e/example.spec.ts`):
 
@@ -252,54 +230,43 @@ test('should load home page', async ({ page }) => {
 })
 ```
 
-### 7. Run Tests
+### 6. Run Tests
 
 ```bash
 # Build Next.js with source maps (use E2E_MODE for optimal coverage)
 E2E_MODE=true npm run build
 
-# Start the server with inspector enabled and run tests
-NODE_OPTIONS='--inspect=9230' npm run start &
+# Start the server with V8 coverage enabled and run tests
+NODE_V8_COVERAGE=.v8-coverage NODE_OPTIONS='--inspect=9230' npm run start &
 npx playwright test
 
 # Or use start-server-and-test for better cross-platform support
-npx start-server-and-test 'NODE_OPTIONS=--inspect=9230 npm start' http://localhost:3000 'npx playwright test'
+npx start-server-and-test 'NODE_V8_COVERAGE=.v8-coverage NODE_OPTIONS=--inspect=9230 npm start' http://localhost:3000 'npx playwright test'
 ```
+
+The key environment variables:
+- `NODE_V8_COVERAGE=.v8-coverage` - Enables Node.js to collect V8 coverage data
+- `NODE_OPTIONS='--inspect=9230'` - Enables CDP connection for triggering coverage flush
 
 ## Development Mode Coverage
 
 nextcov supports collecting coverage directly from `next dev` without requiring a production build. This is useful for faster iteration during development.
 
-### How Dev Mode Works
-
-In development mode, Next.js uses webpack's `eval-source-map` devtool which embeds source maps directly in the JavaScript code as base64-encoded data URLs. nextcov automatically:
-
-1. **Detects dev mode** by probing CDP ports (dev mode worker runs on base port + 1)
-2. **Extracts inline source maps** from `webpack-internal://` scripts via CDP Debugger API
-3. **Maps coverage** back to original TypeScript/JSX source files
-
 ### Running Tests Against Dev Server
 
-The global setup from the Quick Start already uses `startServerCoverageAutoDetect`, which automatically detects dev vs production mode. No changes needed!
-
-#### Start Dev Server with Inspector
-
 ```bash
-# Start Next.js dev server with Node inspector enabled
-NODE_OPTIONS='--inspect=9230' npm run dev &
+# Start Next.js dev server with V8 coverage and inspector enabled
+NODE_V8_COVERAGE=.v8-coverage NODE_OPTIONS='--inspect=9230' npm run dev &
 
 # Run Playwright tests
 npx playwright test
 ```
-
-The dev server spawns a worker process on `cdpPort + 1` (e.g., 9231 if you use `--inspect=9230`) which handles the actual requests. nextcov automatically connects to this worker process to collect server coverage.
 
 ### Dev Mode vs Production Mode
 
 | Aspect | Dev Mode | Production Mode |
 |--------|----------|-----------------|
 | **Server Command** | `next dev` | `next build && next start` |
-| **CDP Port** | cdpPort + 1 (worker) | cdpPort (main) |
 | **Source Maps** | Inline (base64 in JS) | External (.map files) |
 | **Build Required** | No | Yes |
 | **Hot Reload** | Yes | No |
@@ -419,6 +386,7 @@ Finalizes coverage collection and generates reports. Call in globalTeardown.
 | `collectServer` | `boolean` | `true` | Collect server-side coverage |
 | `collectClient` | `boolean` | `true` | Collect client-side coverage |
 | `cleanup` | `boolean` | `true` | Clean up temp files |
+| `cdpPort` | `number` | `9230` | CDP port for triggering v8.takeCoverage() |
 
 ### Main API (`nextcov`)
 
@@ -434,7 +402,7 @@ const config = await loadNextcovConfig('./e2e/playwright.config.ts')
 
 #### `connectToCDP(options)`
 
-Connects to Node.js server via Chrome DevTools Protocol for server coverage (production mode).
+Connects to Node.js server via Chrome DevTools Protocol.
 
 ```typescript
 import { connectToCDP } from 'nextcov'
@@ -442,32 +410,24 @@ import { connectToCDP } from 'nextcov'
 await connectToCDP({ port: 9230 })
 ```
 
-#### `startServerCoverageAutoDetect(options?)`
+#### `V8ServerCoverageCollector`
 
-Auto-detects dev vs production mode and starts server coverage collection. Call in globalSetup.
+Collector for server-side V8 coverage using `NODE_V8_COVERAGE` + CDP trigger.
 
 ```typescript
-import { startServerCoverageAutoDetect } from 'nextcov'
+import { V8ServerCoverageCollector } from 'nextcov'
 
-const result = await startServerCoverageAutoDetect({
-  cdpPort: 9230,      // Base port (will also try 9231 for dev mode)
-  sourceRoot: 'src',  // Source directory to filter
+const collector = new V8ServerCoverageCollector({
+  cdpPort: 9230,
+  buildDir: '.next',
+  sourceRoot: './src',
 })
 
-if (result) {
-  console.log(`Mode: ${result.isDevMode ? 'dev' : 'production'}, Port: ${result.port}`)
+const connected = await collector.connect()
+if (connected) {
+  const coverage = await collector.collect()
+  console.log(`Collected ${coverage.length} entries`)
 }
-```
-
-#### `stopServerCoverageAutoDetect()`
-
-Stops server coverage collection and returns the collected entries. Call in globalTeardown.
-
-```typescript
-import { stopServerCoverageAutoDetect } from 'nextcov'
-
-const { entries, isDevMode } = await stopServerCoverageAutoDetect()
-console.log(`Collected ${entries.length} entries in ${isDevMode ? 'dev' : 'production'} mode`)
 ```
 
 #### `mergeCoverage(options)`
@@ -522,7 +482,7 @@ const merged = await merger.merge(map1, map2, map3)
 
 1. **Coverage Collection**
    - Client: Uses Playwright's CDP integration to collect V8 coverage from the browser
-   - Server: Connects to Next.js server via CDP to collect Node.js coverage
+   - Server: Uses Node.js `NODE_V8_COVERAGE` env var to collect coverage, triggered via CDP `v8.takeCoverage()`
 
 2. **Source Mapping**
    - Loads source maps from Next.js build output (`.next/`)
@@ -552,9 +512,9 @@ const merged = await merger.merge(map1, map2, map3)
 
 ### Server Coverage Not Working
 
-- Ensure Next.js is started with `NODE_OPTIONS='--inspect=9230'`
+- Ensure Next.js is started with `NODE_V8_COVERAGE=.v8-coverage` and `NODE_OPTIONS='--inspect=9230'`
 - Verify the CDP port matches your config
-- Check that `globalSetup` calls `connectToCDP()`
+- Check that `globalTeardown` calls `finalizeCoverage()`
 
 ### Source Maps Not Found
 
@@ -564,16 +524,8 @@ const merged = await merger.merge(map1, map2, map3)
 
 ### Dev Mode Coverage Not Working
 
-- Ensure Next.js dev server is started with `NODE_OPTIONS='--inspect=9230'`
-- Verify the worker process is running on cdpPort + 1 (e.g., 9231 if using `--inspect=9230`)
-- Use `startServerCoverageAutoDetect()` instead of `connectToCDP()` in globalSetup
+- Ensure Next.js dev server is started with `NODE_V8_COVERAGE=.v8-coverage` and `NODE_OPTIONS='--inspect=9230'`
 - Check that your source files are in the `sourceRoot` directory (default: `src`)
-
-### Dev Mode Shows 0 Coverage Entries
-
-- The dev server worker process may not have started yet - add a delay after starting dev server
-- Hot reload may have cleared scripts - ensure tests run after page is fully loaded
-- Check console for "Dev mode detected on port ..." message
 
 ### Slow Coverage Processing
 

@@ -2,6 +2,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { Page, TestInfo } from '@playwright/test'
 
+// Mock V8ServerCoverageCollector - track calls and return values
+let mockV8CollectorCollectReturn: any[] = []
+const mockV8CollectorInstances: any[] = []
+
+class MockV8ServerCoverageCollector {
+  connect = vi.fn().mockResolvedValue(true)
+  collect = vi.fn().mockImplementation(() => Promise.resolve(mockV8CollectorCollectReturn))
+  cleanup = vi.fn().mockResolvedValue(undefined)
+
+  constructor() {
+    mockV8CollectorInstances.push(this)
+  }
+}
+
 // Mock dependencies
 vi.mock('../../collector/index.js', () => ({
   saveServerCoverage: vi.fn().mockResolvedValue(undefined),
@@ -9,20 +23,16 @@ vi.mock('../../collector/index.js', () => ({
   saveClientCoverage: vi.fn().mockResolvedValue(undefined),
   cleanCoverageDir: vi.fn().mockResolvedValue(undefined),
   filterAppCoverage: vi.fn((coverage) => coverage),
-  stopServerCoverageAutoDetect: vi.fn().mockResolvedValue({ entries: [], isDevMode: false }),
   initCoverageDir: vi.fn().mockResolvedValue(undefined),
   connectToCDP: vi.fn(),
   collectServerCoverage: vi.fn(),
   createDevModeServerCollector: vi.fn(),
-  startServerCoverageAutoDetect: vi.fn(),
   ClientCoverageCollector: class MockClientCoverageCollector {
     readAllClientCoverage = vi.fn().mockResolvedValue([])
     saveClientCoverage = vi.fn().mockResolvedValue(undefined)
     cleanCoverageDir = vi.fn().mockResolvedValue(undefined)
   },
-  ServerCoverageCollector: class MockServerCoverageCollector {
-    save = vi.fn().mockResolvedValue(undefined)
-  },
+  V8ServerCoverageCollector: MockV8ServerCoverageCollector,
 }))
 
 vi.mock('../../processor.js', () => ({
@@ -36,6 +46,8 @@ vi.mock('../../processor.js', () => ({
 describe('playwright integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockV8CollectorCollectReturn = []
+    mockV8CollectorInstances.length = 0
   })
 
   afterEach(() => {
@@ -47,9 +59,10 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect, readAllClientCoverage } = await import('../../collector/index.js')
+      const { readAllClientCoverage } = await import('../../collector/index.js')
 
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({ entries: [], isDevMode: false })
+      // V8 collector returns empty by default
+      mockV8CollectorCollectReturn = []
       vi.mocked(readAllClientCoverage).mockResolvedValue([])
 
       const result = await finalizeCoverage()
@@ -64,13 +77,9 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect, readAllClientCoverage } = await import('../../collector/index.js')
 
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [{ url: 'test', functions: [] }] as any,
-        isDevMode: false,
-      })
-      vi.mocked(readAllClientCoverage).mockResolvedValue([])
+      // Mock V8ServerCoverageCollector to return coverage
+      mockV8CollectorCollectReturn = [{ url: 'test', functions: [] }]
 
       const result = await finalizeCoverage()
 
@@ -84,19 +93,16 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect } = await import('../../collector/index.js')
 
       const serverCoverage = [{ url: 'server.js', functions: [] }]
 
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: serverCoverage as any,
-        isDevMode: false,
-      })
+      // Mock V8ServerCoverageCollector to return server coverage
+      mockV8CollectorCollectReturn = serverCoverage
 
       await finalizeCoverage()
 
-      // stopServerCoverageAutoDetect is still called as a module function
-      expect(stopServerCoverageAutoDetect).toHaveBeenCalled()
+      // V8ServerCoverageCollector should be instantiated (V8 mode is now default)
+      expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
       // Client collection uses ClientCoverageCollector instance (mocked via class mock)
 
       consoleSpy.mockRestore()
@@ -106,14 +112,9 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect } = await import(
-        '../../collector/index.js'
-      )
 
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [{ url: 'test', functions: [] }] as any,
-        isDevMode: false,
-      })
+      // V8 collector returns server coverage
+      mockV8CollectorCollectReturn = [{ url: 'test', functions: [] }]
 
       // Just verify it runs without error with custom options
       // Cleanup uses ClientCoverageCollector instance (mocked via class mock)
@@ -130,14 +131,12 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect, readAllClientCoverage, cleanCoverageDir } = await import(
+      const { readAllClientCoverage, cleanCoverageDir } = await import(
         '../../collector/index.js'
       )
 
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [{ url: 'test', functions: [] }] as any,
-        isDevMode: false,
-      })
+      // V8 collector returns server coverage
+      mockV8CollectorCollectReturn = [{ url: 'test', functions: [] }]
       vi.mocked(readAllClientCoverage).mockResolvedValue([])
 
       // Reset mock to track calls
@@ -154,17 +153,19 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect, readAllClientCoverage } = await import('../../collector/index.js')
+      const { readAllClientCoverage } = await import('../../collector/index.js')
 
       vi.mocked(readAllClientCoverage).mockResolvedValue([
         { url: 'client.js', source: 'code', rawScriptCoverage: [] } as any,
       ])
 
-      vi.mocked(stopServerCoverageAutoDetect).mockClear()
+      // Clear instances before this test
+      mockV8CollectorInstances.length = 0
 
       await finalizeCoverage({ collectServer: false })
 
-      expect(stopServerCoverageAutoDetect).not.toHaveBeenCalled()
+      // V8ServerCoverageCollector should not be instantiated when server collection is disabled
+      expect(mockV8CollectorInstances.length).toBe(0)
 
       consoleSpy.mockRestore()
     })
@@ -173,12 +174,10 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect, readAllClientCoverage } = await import('../../collector/index.js')
+      const { readAllClientCoverage } = await import('../../collector/index.js')
 
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [{ url: 'server.js', functions: [] }] as any,
-        isDevMode: false,
-      })
+      // V8 collector returns server coverage
+      mockV8CollectorCollectReturn = [{ url: 'server.js', functions: [] }]
 
       vi.mocked(readAllClientCoverage).mockClear()
 
@@ -189,49 +188,22 @@ describe('playwright integration', () => {
       consoleSpy.mockRestore()
     })
 
-    it('should handle dev mode coverage', async () => {
+    it('should save server coverage via V8 collector', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect, saveServerCoverage } = await import('../../collector/index.js')
 
-      // Dev mode - entries have sourceMapData
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [
-          {
-            url: 'webpack-internal:///(rsc)/./src/app/page.tsx',
-            functions: [],
-            sourceMapData: { version: 3, sources: [], mappings: '' },
-          },
-        ] as any,
-        isDevMode: true,
-      })
+      // V8 collector returns server coverage
+      mockV8CollectorCollectReturn = [
+        { url: '/_next/static/chunks/main.js', functions: [] },
+      ]
 
-      await finalizeCoverage()
-
-      // In dev mode, saveServerCoverage should NOT be called (inline source maps)
-      expect(saveServerCoverage).not.toHaveBeenCalled()
-
-      consoleSpy.mockRestore()
-    })
-
-    it('should save server coverage in production mode', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-      const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect } = await import(
-        '../../collector/index.js'
-      )
-
-      // Production mode
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [{ url: '/_next/static/chunks/main.js', functions: [] }] as any,
-        isDevMode: false,
-      })
-
-      // Just verify it runs without error in production mode
+      // Just verify it runs without error with V8 mode
       // Server coverage save uses ServerCoverageCollector instance (mocked via class mock)
       await finalizeCoverage()
+
+      // V8ServerCoverageCollector should be instantiated
+      expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
 
       consoleSpy.mockRestore()
     })
@@ -240,15 +212,9 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect } = await import(
-        '../../collector/index.js'
-      )
 
-      // No coverage entries
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({
-        entries: [],
-        isDevMode: false,
-      })
+      // No coverage entries from V8 collector
+      mockV8CollectorCollectReturn = []
 
       const result = await finalizeCoverage({ cleanup: true })
 
@@ -353,14 +319,12 @@ describe('playwright integration', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       const { finalizeCoverage } = await import('../index.js')
-      const { stopServerCoverageAutoDetect } = await import('../../collector/index.js')
-
-      vi.mocked(stopServerCoverageAutoDetect).mockResolvedValue({ entries: [], isDevMode: false })
 
       await finalizeCoverage()
 
       // Should use defaults - collectServer and collectClient are true by default
-      expect(stopServerCoverageAutoDetect).toHaveBeenCalled()
+      // V8ServerCoverageCollector should be instantiated (V8 mode is now default)
+      expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
       // Client collection uses ClientCoverageCollector instance (mocked via class mock)
 
       consoleSpy.mockRestore()

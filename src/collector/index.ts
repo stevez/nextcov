@@ -42,11 +42,11 @@ export {
 } from './dev-server.js'
 
 export {
-  // Auto-detect collector (tries both dev and production modes)
-  autoDetectServerCollector,
-  collectServerCoverageAutoDetect,
-  startServerCoverageAutoDetect,
-  stopServerCoverageAutoDetect,
-  type AutoDetectConfig,
-  type DetectionResult,
-} from './auto-detect.js'
+  // V8 server collector (uses NODE_V8_COVERAGE + CDP trigger)
+  V8ServerCoverageCollector,
+  createV8ServerCollector,
+  startV8ServerCoverage,
+  stopV8ServerCoverage,
+  type V8ServerCoverageEntry,
+  type V8ServerCollectorConfig,
+} from './v8-server.js'

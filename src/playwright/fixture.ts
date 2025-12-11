@@ -21,12 +21,12 @@ import {
 import {
   saveClientCoverage,
   filterAppCoverage,
-  stopServerCoverageAutoDetect,
   ClientCoverageCollector,
-  ServerCoverageCollector,
+  V8ServerCoverageCollector,
   type V8CoverageEntry,
   type PlaywrightCoverageEntry,
   type DevServerCoverageEntry,
+  type V8ServerCoverageEntry,
 } from '../collector/index.js'
 
 export interface PlaywrightCoverageOptions {
@@ -38,6 +38,12 @@ export interface PlaywrightCoverageOptions {
   buildDir?: string
   /** Source root relative to project root (default: './src') */
   sourceRoot?: string
+  /**
+   * V8 coverage directory where NODE_V8_COVERAGE writes coverage files.
+   * This should match the value of NODE_V8_COVERAGE env var.
+   * (default: from NODE_V8_COVERAGE env or '.v8-coverage')
+   */
+  v8CoverageDir?: string
   /** Glob patterns to include */
   include?: string[]
   /** Glob patterns to exclude */
@@ -52,6 +58,8 @@ export interface PlaywrightCoverageOptions {
   collectClient?: boolean
   /** Dev mode options (auto-detected by default) */
   devMode?: ResolvedDevModeOptions
+  /** CDP port for triggering v8.takeCoverage() (default: 9230) */
+  cdpPort?: number
 }
 
 const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
@@ -59,6 +67,7 @@ const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
   outputDir: DEFAULT_NEXTCOV_CONFIG.outputDir,
   buildDir: DEFAULT_NEXTCOV_CONFIG.buildDir,
   sourceRoot: DEFAULT_NEXTCOV_CONFIG.sourceRoot,
+  v8CoverageDir: DEFAULT_NEXTCOV_CONFIG.v8CoverageDir,
   include: DEFAULT_INCLUDE_PATTERNS,
   exclude: DEFAULT_EXCLUDE_PATTERNS,
   reporters: DEFAULT_REPORTERS,
@@ -66,6 +75,7 @@ const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
   collectServer: DEFAULT_NEXTCOV_CONFIG.collectServer,
   collectClient: DEFAULT_NEXTCOV_CONFIG.collectClient,
   devMode: DEFAULT_NEXTCOV_CONFIG.devMode,
+  cdpPort: DEFAULT_NEXTCOV_CONFIG.cdpPort,
 }
 
 /**
@@ -105,37 +115,31 @@ export async function finalizeCoverage(
   console.log('\n✅ E2E tests complete')
 
   // Step 1: Collect server-side coverage via CDP (before server shuts down)
-  // Auto-detect dev vs production mode by probing CDP ports
-  let serverCoverage: Array<V8CoverageEntry | DevServerCoverageEntry> = []
-  let detectedDevMode = false
+  let serverCoverage: Array<V8CoverageEntry | DevServerCoverageEntry | V8ServerCoverageEntry> = []
+
+  let v8Collector: V8ServerCoverageCollector | null = null
 
   if (opts.collectServer) {
-    // Stop server coverage collection (started in global-setup via startServerCoverageAutoDetect)
-    console.log('📊 Collecting server-side coverage...')
-    const result = await stopServerCoverageAutoDetect()
+    // Use NODE_V8_COVERAGE + CDP trigger approach
+    console.log('📊 Collecting server-side coverage (NODE_V8_COVERAGE mode)...')
+    v8Collector = new V8ServerCoverageCollector({
+      cdpPort: opts.cdpPort,
+      buildDir: opts.buildDir,
+      sourceRoot: opts.sourceRoot,
+      v8CoverageDir: opts.v8CoverageDir,
+    })
 
-    serverCoverage = result.entries
-    detectedDevMode = result.isDevMode
-
-    if (serverCoverage.length > 0) {
-      console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries`)
-      if (detectedDevMode) {
-        console.log('  Using inline source maps (dev mode)')
+    const connected = await v8Collector.connect()
+    if (connected) {
+      serverCoverage = await v8Collector.collect()
+      if (serverCoverage.length > 0) {
+        console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries (V8 mode)`)
       }
     }
   }
 
-  // Resolve buildDir: use .next for dev mode, otherwise use configured value
-  const resolvedBuildDir = detectedDevMode ? '.next' : opts.buildDir
-
-  // Create collectors with explicit config to avoid singleton issues
+  // Create client collector for reading client-side coverage files
   const clientCollector = new ClientCoverageCollector({ cacheDir })
-  const serverCollector = new ServerCoverageCollector({ cacheDir, buildDir: resolvedBuildDir })
-
-  // Save server coverage for production mode (dev mode has inline source maps)
-  if (!detectedDevMode && serverCoverage.length > 0) {
-    await serverCollector.save(serverCoverage as V8CoverageEntry[])
-  }
 
   // Step 2: Read client-side coverage collected during tests
   let clientCoverage: PlaywrightCoverageEntry[] = []
@@ -156,6 +160,10 @@ export async function finalizeCoverage(
     console.log('  ⚠️ No coverage to process')
     if (opts.cleanup) {
       await clientCollector.cleanCoverageDir()
+      // Clean up V8 coverage directory
+      if (v8Collector) {
+        await v8Collector.cleanup()
+      }
     }
     return null
   }
@@ -166,7 +174,7 @@ export async function finalizeCoverage(
   try {
     const processor = new CoverageProcessor(opts.projectRoot, {
       outputDir: opts.outputDir,
-      nextBuildDir: resolvedBuildDir,
+      nextBuildDir: opts.buildDir,
       sourceRoot: opts.sourceRoot,
       include: opts.include,
       exclude: opts.exclude,
@@ -184,6 +192,10 @@ export async function finalizeCoverage(
     // Step 4: Clean up temporary coverage files
     if (opts.cleanup) {
       await clientCollector.cleanCoverageDir()
+      // Clean up V8 coverage directory
+      if (v8Collector) {
+        await v8Collector.cleanup()
+      }
     }
 
     return result
@@ -191,6 +203,10 @@ export async function finalizeCoverage(
     console.error('❌ Error processing coverage:', error)
     if (opts.cleanup) {
       await clientCollector.cleanCoverageDir()
+      // Clean up V8 coverage directory even on error
+      if (v8Collector) {
+        await v8Collector.cleanup()
+      }
     }
     return null
   }
