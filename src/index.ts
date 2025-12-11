@@ -76,11 +76,13 @@ export {
   type DevServerCollectorConfig,
   type DevServerCoverageEntry,
   type ScriptInfo,
-  // Auto-detect collector (tries both dev and production modes)
-  startServerCoverageAutoDetect,
-  stopServerCoverageAutoDetect,
-  collectServerCoverageAutoDetect,
-  type AutoDetectConfig,
+  // V8 server collector (uses NODE_V8_COVERAGE + CDP trigger)
+  V8ServerCoverageCollector,
+  createV8ServerCollector,
+  startV8ServerCoverage,
+  stopV8ServerCoverage,
+  type V8ServerCoverageEntry,
+  type V8ServerCollectorConfig,
 } from './collector/index.js'
 
 // Dev mode utilities

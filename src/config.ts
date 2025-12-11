@@ -59,6 +59,13 @@ export interface NextcovConfig {
   /** Output directory for E2E coverage reports (default: 'coverage/e2e') */
   outputDir?: string
 
+  /**
+   * V8 coverage directory where NODE_V8_COVERAGE writes coverage files.
+   * This should match the value of NODE_V8_COVERAGE env var.
+   * (default: from NODE_V8_COVERAGE env or '.v8-coverage')
+   */
+  v8CoverageDir?: string
+
   /** Whether to collect server-side coverage (default: true) */
   collectServer?: boolean
 
@@ -114,6 +121,7 @@ export interface ResolvedNextcovConfig {
   buildDir: string
   cacheDir: string
   outputDir: string
+  v8CoverageDir: string
   collectServer: boolean
   collectClient: boolean
   sourceRoot: string
@@ -136,6 +144,11 @@ export const DEFAULT_DEV_MODE_OPTIONS: ResolvedDevModeOptions = {
 }
 
 /**
+ * Default V8 coverage directory (from NODE_V8_COVERAGE env or fallback)
+ */
+const DEFAULT_V8_COVERAGE_DIR = process.env.NODE_V8_COVERAGE || '.v8-coverage'
+
+/**
  * Default configuration values
  */
 export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
@@ -143,6 +156,7 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
   buildDir: '.next',
   cacheDir: join(DEFAULT_OUTPUT_DIR, '.cache'),
   outputDir: DEFAULT_OUTPUT_DIR,
+  v8CoverageDir: DEFAULT_V8_COVERAGE_DIR,
   collectServer: true,
   collectClient: true,
   sourceRoot: './src',
@@ -197,6 +211,7 @@ export function resolveNextcovConfig(config?: NextcovConfig): ResolvedNextcovCon
     buildDir: config?.buildDir ?? DEFAULT_NEXTCOV_CONFIG.buildDir,
     cacheDir: join(outputDir, '.cache'),
     outputDir,
+    v8CoverageDir: config?.v8CoverageDir ?? DEFAULT_NEXTCOV_CONFIG.v8CoverageDir,
     collectServer: config?.collectServer ?? DEFAULT_NEXTCOV_CONFIG.collectServer,
     collectClient: config?.collectClient ?? DEFAULT_NEXTCOV_CONFIG.collectClient,
     sourceRoot: config?.sourceRoot ?? DEFAULT_NEXTCOV_CONFIG.sourceRoot,
