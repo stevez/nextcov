@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CDPClient } from 'monocart-coverage-reports'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
+import { log } from '../logger.js'
 
 export interface V8ServerCoverageEntry {
   url: string
@@ -74,12 +75,12 @@ export class V8ServerCoverageCollector {
    */
   async connect(): Promise<boolean> {
     try {
-      console.log(`  Connecting to CDP at port ${this.config.cdpPort}...`)
+      log(`  Connecting to CDP at port ${this.config.cdpPort}...`)
       this.cdpClient = await CDPClient({ port: this.config.cdpPort })
-      console.log('  ✓ Connected to CDP')
+      log('  ✓ Connected to CDP')
       return true
     } catch (error) {
-      console.log(`  ⚠️ Failed to connect to CDP: ${error}`)
+      log(`  ⚠️ Failed to connect to CDP: ${error}`)
       return false
     }
   }
@@ -90,7 +91,7 @@ export class V8ServerCoverageCollector {
    */
   async triggerCoverageWrite(): Promise<string | null> {
     if (!this.cdpClient) {
-      console.log('  ⚠️ CDP not connected')
+      log('  ⚠️ CDP not connected')
       return null
     }
 
@@ -98,10 +99,10 @@ export class V8ServerCoverageCollector {
       // Use CDP to execute v8.takeCoverage() in the remote process
       // This is what monocart's writeCoverage() does internally
       const dir = await this.cdpClient.writeCoverage()
-      console.log(`  ✓ Triggered v8.takeCoverage(), coverage dir: ${dir}`)
+      log(`  ✓ Triggered v8.takeCoverage(), coverage dir: ${dir}`)
       return dir || this.config.v8CoverageDir
     } catch (error) {
-      console.log(`  ⚠️ Failed to trigger coverage write: ${error}`)
+      log(`  ⚠️ Failed to trigger coverage write: ${error}`)
       return null
     }
   }
@@ -111,7 +112,7 @@ export class V8ServerCoverageCollector {
    */
   private readCoverageFiles(coverageDir: string): V8ServerCoverageEntry[] {
     if (!existsSync(coverageDir)) {
-      console.log(`  ⚠️ Coverage directory not found: ${coverageDir}`)
+      log(`  ⚠️ Coverage directory not found: ${coverageDir}`)
       return []
     }
 
@@ -121,11 +122,11 @@ export class V8ServerCoverageCollector {
     )
 
     if (coverageFiles.length === 0) {
-      console.log(`  ⚠️ No coverage files found in ${coverageDir}`)
+      log(`  ⚠️ No coverage files found in ${coverageDir}`)
       return []
     }
 
-    console.log(`  Found ${coverageFiles.length} coverage file(s)`)
+    log(`  Found ${coverageFiles.length} coverage file(s)`)
 
     const allEntries: V8ServerCoverageEntry[] = []
 
@@ -140,7 +141,7 @@ export class V8ServerCoverageCollector {
           allEntries.push(...result)
         }
       } catch (error) {
-        console.log(`  ⚠️ Failed to read ${file}: ${error}`)
+        log(`  ⚠️ Failed to read ${file}: ${error}`)
       }
     }
 
@@ -163,15 +164,15 @@ export class V8ServerCoverageCollector {
     // Debug: log URL patterns to understand coverage data
     const allFileUrls = entries.filter((e) => e.url?.startsWith('file:'))
     const nonNodeModuleUrls = allFileUrls.filter((e) => !e.url.includes('node_modules'))
-    console.log(`  Debug: Total entries=${entries.length}, file:URLs=${allFileUrls.length}, non-node_modules=${nonNodeModuleUrls.length}`)
-    console.log(`  Debug: sourceRoot="${sourceRoot}", pattern="/${sourceRoot}/"`)
+    log(`  Debug: Total entries=${entries.length}, file:URLs=${allFileUrls.length}, non-node_modules=${nonNodeModuleUrls.length}`)
+    log(`  Debug: sourceRoot="${sourceRoot}", pattern="/${sourceRoot}/"`)
 
     if (nonNodeModuleUrls.length > 0) {
-      console.log(`  Debug: Sample non-node_modules URLs:`)
-      nonNodeModuleUrls.slice(0, 10).forEach((e) => console.log(`    ${e.url}`))
+      log(`  Debug: Sample non-node_modules URLs:`)
+      nonNodeModuleUrls.slice(0, 10).forEach((e) => log(`    ${e.url}`))
     } else if (allFileUrls.length > 0) {
-      console.log(`  Debug: All file URLs are in node_modules. Sample:`)
-      allFileUrls.slice(0, 3).forEach((e) => console.log(`    ${e.url}`))
+      log(`  Debug: All file URLs are in node_modules. Sample:`)
+      allFileUrls.slice(0, 3).forEach((e) => log(`    ${e.url}`))
     }
 
     return entries.filter((entry) => {
@@ -250,17 +251,17 @@ export class V8ServerCoverageCollector {
       return []
     }
 
-    console.log(`  Read ${allEntries.length} total coverage entries`)
+    log(`  Read ${allEntries.length} total coverage entries`)
 
     // Step 3: Filter to relevant files
     const filtered = this.filterEntries(allEntries)
 
-    console.log(`  Filtered to ${filtered.length} server coverage entries`)
+    log(`  Filtered to ${filtered.length} server coverage entries`)
 
     // Step 4: Attach source content
     this.attachSourceContent(filtered)
 
-    console.log(`  ✓ Collected ${filtered.length} server coverage entries`)
+    log(`  ✓ Collected ${filtered.length} server coverage entries`)
 
     return filtered
   }
@@ -274,7 +275,7 @@ export class V8ServerCoverageCollector {
     await fs.mkdir(cacheDir, { recursive: true })
     const filePath = join(cacheDir, `server-v8-${Date.now()}.json`)
     await fs.writeFile(filePath, JSON.stringify({ result: coverage }, null, 2))
-    console.log(`  ✓ Server coverage saved to ${filePath}`)
+    log(`  ✓ Server coverage saved to ${filePath}`)
   }
 
   /**
@@ -289,9 +290,9 @@ export class V8ServerCoverageCollector {
 
     try {
       await fs.rm(coverageDir, { recursive: true, force: true })
-      console.log(`  ✓ Cleaned up V8 coverage directory: ${coverageDir}`)
+      log(`  ✓ Cleaned up V8 coverage directory: ${coverageDir}`)
     } catch (error) {
-      console.log(`  ⚠️ Failed to clean up V8 coverage directory: ${error}`)
+      log(`  ⚠️ Failed to clean up V8 coverage directory: ${error}`)
     }
   }
 
@@ -333,7 +334,7 @@ export async function startV8ServerCoverage(
  */
 export async function stopV8ServerCoverage(): Promise<V8ServerCoverageEntry[]> {
   if (!defaultCollector) {
-    console.log('  ⚠️ No active V8 server coverage collection')
+    log('  ⚠️ No active V8 server coverage collection')
     return []
   }
 

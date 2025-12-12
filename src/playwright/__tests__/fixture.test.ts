@@ -2,6 +2,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { Page, TestInfo } from '@playwright/test'
 
+// Mock the logger module
+vi.mock('../../logger.js', () => ({
+  log: vi.fn(),
+  setLogging: vi.fn(),
+  isLoggingEnabled: vi.fn().mockReturnValue(false),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
 // Mock V8ServerCoverageCollector - track calls and return values
 let mockV8CollectorCollectReturn: any[] = []
 const mockV8CollectorInstances: any[] = []
@@ -56,10 +65,9 @@ describe('playwright integration', () => {
 
   describe('finalizeCoverage', () => {
     it('should return null when no coverage is collected', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
       const { readAllClientCoverage } = await import('../../collector/index.js')
+      const { log } = await import('../../logger.js')
 
       // V8 collector returns empty by default
       mockV8CollectorCollectReturn = []
@@ -68,14 +76,10 @@ describe('playwright integration', () => {
       const result = await finalizeCoverage()
 
       expect(result).toBeNull()
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('No coverage to process'))
-
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('No coverage to process'))
     })
 
     it('should process coverage and return result', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
 
       // Mock V8ServerCoverageCollector to return coverage
@@ -85,13 +89,9 @@ describe('playwright integration', () => {
 
       expect(result).not.toBeNull()
       expect(result!.summary.lines.pct).toBe(85.5)
-
-      consoleSpy.mockRestore()
     })
 
     it('should collect from both server and client', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
 
       const serverCoverage = [{ url: 'server.js', functions: [] }]
@@ -104,13 +104,9 @@ describe('playwright integration', () => {
       // V8ServerCoverageCollector should be instantiated (V8 mode is now default)
       expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
       // Client collection uses ClientCoverageCollector instance (mocked via class mock)
-
-      consoleSpy.mockRestore()
     })
 
     it('should use custom options', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
 
       // V8 collector returns server coverage
@@ -123,13 +119,9 @@ describe('playwright integration', () => {
         sourceRoot: './lib',
         cleanup: true,
       })
-
-      consoleSpy.mockRestore()
     })
 
     it('should skip cleanup when disabled', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
       const { readAllClientCoverage, cleanCoverageDir } = await import(
         '../../collector/index.js'
@@ -145,13 +137,9 @@ describe('playwright integration', () => {
       await finalizeCoverage({ cleanup: false })
 
       expect(cleanCoverageDir).not.toHaveBeenCalled()
-
-      consoleSpy.mockRestore()
     })
 
     it('should skip server collection when disabled', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
       const { readAllClientCoverage } = await import('../../collector/index.js')
 
@@ -166,13 +154,9 @@ describe('playwright integration', () => {
 
       // V8ServerCoverageCollector should not be instantiated when server collection is disabled
       expect(mockV8CollectorInstances.length).toBe(0)
-
-      consoleSpy.mockRestore()
     })
 
     it('should skip client collection when disabled', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
       const { readAllClientCoverage } = await import('../../collector/index.js')
 
@@ -184,13 +168,9 @@ describe('playwright integration', () => {
       await finalizeCoverage({ collectClient: false })
 
       expect(readAllClientCoverage).not.toHaveBeenCalled()
-
-      consoleSpy.mockRestore()
     })
 
     it('should save server coverage via V8 collector', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
 
       // V8 collector returns server coverage
@@ -204,13 +184,9 @@ describe('playwright integration', () => {
 
       // V8ServerCoverageCollector should be instantiated
       expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
-
-      consoleSpy.mockRestore()
     })
 
     it('should handle no coverage scenario and cleanup', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const { finalizeCoverage } = await import('../index.js')
 
       // No coverage entries from V8 collector
@@ -220,8 +196,6 @@ describe('playwright integration', () => {
 
       expect(result).toBeNull()
       // Cleanup uses ClientCoverageCollector instance (mocked via class mock)
-
-      consoleSpy.mockRestore()
     })
   })
 

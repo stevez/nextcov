@@ -30,6 +30,7 @@ import {
   type DevServerCoverageEntry,
   type V8ServerCoverageEntry,
 } from '../collector/index.js'
+import { log, setLogging } from '../logger.js'
 
 // Module-level collector for persisting between globalSetup and globalTeardown
 let devModeCollector: DevModeServerCollector | null = null
@@ -110,6 +111,9 @@ export async function startServerCoverage(
     ? config as ResolvedNextcovConfig
     : resolveNextcovConfig(config)
 
+  // Initialize logging from config
+  setLogging(resolved.log)
+
   // Auto-detect dev mode vs production mode:
   // - Dev mode: next dev --inspect=9230 spawns worker on port 9231 (inspect port + 1)
   // - Production mode: next start --inspect=9230 runs on port 9230 (no worker)
@@ -120,8 +124,8 @@ export async function startServerCoverage(
   const devWorkerPort = resolved.cdpPort + 1 // e.g., 9231 (worker port for --inspect=9230)
   const productionPort = resolved.cdpPort // e.g., 9230 (main process port)
 
-  console.log('📊 Auto-detecting server mode...')
-  console.log(`  Trying dev mode (worker port ${devWorkerPort})...`)
+  log('📊 Auto-detecting server mode...')
+  log(`  Trying dev mode (worker port ${devWorkerPort})...`)
 
   // Try dev mode (connect to worker port)
   devModeCollector = new DevModeServerCollector({
@@ -137,13 +141,13 @@ export async function startServerCoverage(
 
     if (devModeCollector.isDevModeProcess()) {
       isDevMode = true
-      console.log(`  ✓ Dev mode detected (webpack eval scripts found)`)
-      console.log('  ✓ Server coverage collection started')
+      log(`  ✓ Dev mode detected (webpack eval scripts found)`)
+      log('  ✓ Server coverage collection started')
       return true
     } else {
       // Connected but no webpack scripts - this is production mode
-      console.log(`  ℹ️ Connected to port ${devWorkerPort} but no webpack eval scripts found`)
-      console.log(`  ℹ️ This appears to be production mode, not dev mode`)
+      log(`  ℹ️ Connected to port ${devWorkerPort} but no webpack eval scripts found`)
+      log(`  ℹ️ This appears to be production mode, not dev mode`)
       // Disconnect and fall through to production mode
       await devModeCollector.disconnect()
       devModeCollector = null
@@ -153,7 +157,7 @@ export async function startServerCoverage(
   // Dev worker port not available or no webpack scripts - production mode will be used
   devModeCollector = null
   isDevMode = false
-  console.log(`  ℹ️ Production mode will be used (NODE_V8_COVERAGE + port ${productionPort})`)
+  log(`  ℹ️ Production mode will be used (NODE_V8_COVERAGE + port ${productionPort})`)
   return false
 }
 
@@ -197,7 +201,7 @@ export async function finalizeCoverage(
   // Derive cacheDir from outputDir
   const cacheDir = (options as ResolvedNextcovConfig)?.cacheDir || path.join(opts.outputDir, '.cache')
 
-  console.log('\n✅ E2E tests complete')
+  log('\n✅ E2E tests complete')
 
   // Step 1: Collect server-side coverage via CDP (before server shuts down)
   let serverCoverage: Array<V8CoverageEntry | DevServerCoverageEntry | V8ServerCoverageEntry> = []
@@ -210,10 +214,10 @@ export async function finalizeCoverage(
     // Auto-detect: If devModeCollector was started in globalSetup, use dev mode
     if (localDevModeCollector) {
       // Dev mode: collector was started in globalSetup
-      console.log('📊 Collecting server-side coverage (dev mode)...')
+      log('📊 Collecting server-side coverage (dev mode)...')
       serverCoverage = await localDevModeCollector.collect()
       if (serverCoverage.length > 0) {
-        console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries (dev mode)`)
+        log(`  ✓ Collected ${serverCoverage.length} server coverage entries (dev mode)`)
       }
       // Clear module-level references
       devModeCollector = null
@@ -223,7 +227,7 @@ export async function finalizeCoverage(
       // Production mode uses cdpPort directly (e.g., 9230)
       // because next start runs on the main process at the inspect port
       const productionPort = opts.cdpPort
-      console.log('📊 Collecting server-side coverage (production mode)...')
+      log('📊 Collecting server-side coverage (production mode)...')
       v8Collector = new V8ServerCoverageCollector({
         cdpPort: productionPort,
         buildDir: opts.buildDir,
@@ -235,7 +239,7 @@ export async function finalizeCoverage(
       if (connected) {
         serverCoverage = await v8Collector.collect()
         if (serverCoverage.length > 0) {
-          console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries (production mode)`)
+          log(`  ✓ Collected ${serverCoverage.length} server coverage entries (production mode)`)
         }
       }
     }
@@ -247,9 +251,9 @@ export async function finalizeCoverage(
   // Step 2: Read client-side coverage collected during tests
   let clientCoverage: PlaywrightCoverageEntry[] = []
   if (opts.collectClient) {
-    console.log('📊 Reading client-side coverage...')
+    log('📊 Reading client-side coverage...')
     clientCoverage = await clientCollector.readAllClientCoverage()
-    console.log(`  ✓ Found ${clientCoverage.length} client-side coverage entries`)
+    log(`  ✓ Found ${clientCoverage.length} client-side coverage entries`)
   }
 
   // Combine: client first, then server (matching original order)
@@ -260,7 +264,7 @@ export async function finalizeCoverage(
 
   // Check if we have any coverage
   if (allCoverage.length === 0) {
-    console.log('  ⚠️ No coverage to process')
+    log('  ⚠️ No coverage to process')
     if (opts.cleanup) {
       await clientCollector.cleanCoverageDir()
       // Clean up V8 coverage directory
@@ -272,7 +276,7 @@ export async function finalizeCoverage(
   }
 
   // Step 3: Process combined coverage
-  console.log('📊 Processing coverage with ast-v8-to-istanbul...')
+  log('📊 Processing coverage with ast-v8-to-istanbul...')
 
   try {
     const processor = new CoverageProcessor(opts.projectRoot, {
@@ -286,10 +290,10 @@ export async function finalizeCoverage(
 
     const result = await processor.processAllCoverage(allCoverage)
 
-    console.log(`\n✅ Coverage reports generated at: ${path.resolve(opts.projectRoot, opts.outputDir)}`)
+    log(`\n✅ Coverage reports generated at: ${path.resolve(opts.projectRoot, opts.outputDir)}`)
     if (result?.summary) {
       const linesPct = result.summary.lines?.pct?.toFixed(1) || '0.0'
-      console.log(`   Overall coverage: ${linesPct}% lines`)
+      log(`   Overall coverage: ${linesPct}% lines`)
     }
 
     // Step 4: Clean up temporary coverage files

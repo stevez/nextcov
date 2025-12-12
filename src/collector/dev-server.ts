@@ -15,6 +15,7 @@
 import type { V8CoverageEntry } from './server.js'
 import type { SourceMapData } from '../types.js'
 import { DevModeSourceMapExtractor, type ExtractedSourceMap } from '../dev-mode-extractor.js'
+import { log } from '../logger.js'
 
 // Dynamically import chrome-remote-interface (optional dependency)
 type CDPClient = Awaited<ReturnType<typeof import('chrome-remote-interface')['default']>>
@@ -78,7 +79,7 @@ export class DevModeServerCollector {
         this.CDP = module.default
       }
 
-      console.log(`  Connecting to CDP (dev mode) at port ${this.config.cdpPort}...`)
+      log(`  Connecting to CDP (dev mode) at port ${this.config.cdpPort}...`)
       this.client = await this.CDP({ port: this.config.cdpPort })
 
       // Enable debugger to get script info
@@ -99,7 +100,7 @@ export class DevModeServerCollector {
       })
 
       await Debugger.enable()
-      console.log('  ✓ Connected to CDP (dev mode)')
+      log('  ✓ Connected to CDP (dev mode)')
 
       // Start profiler for coverage
       await Profiler.enable()
@@ -107,12 +108,12 @@ export class DevModeServerCollector {
         callCount: true,
         detailed: true,
       })
-      console.log('  ✓ Started JS coverage collection (dev mode)')
+      log('  ✓ Started JS coverage collection (dev mode)')
 
       return true
     } catch (error) {
-      console.log(`  ⚠️ Failed to connect to CDP (dev mode): ${error}`)
-      console.log('  Note: In dev mode, server code runs on port 9231 (worker process)')
+      log(`  ⚠️ Failed to connect to CDP (dev mode): ${error}`)
+      log('  Note: In dev mode, server code runs on port 9231 (worker process)')
       return false
     }
   }
@@ -167,7 +168,7 @@ export class DevModeServerCollector {
    */
   async collect(): Promise<DevServerCoverageEntry[]> {
     if (!this.client) {
-      console.log('  ⚠️ CDP not connected (dev mode)')
+      log('  ⚠️ CDP not connected (dev mode)')
       return []
     }
 
@@ -180,7 +181,7 @@ export class DevModeServerCollector {
 
       // Filter to project scripts
       const projectScripts = this.getProjectScripts()
-      console.log(`  Found ${projectScripts.length} project scripts in dev mode`)
+      log(`  Found ${projectScripts.length} project scripts in dev mode`)
 
       // Filter to only project scripts with coverage
       const projectCoverage = coverageResult.filter((coverage) => {
@@ -232,10 +233,10 @@ export class DevModeServerCollector {
       await this.client.close()
       this.client = null
 
-      console.log(`  ✓ Collected ${entries.length} server coverage entries (dev mode)`)
+      log(`  ✓ Collected ${entries.length} server coverage entries (dev mode)`)
       return entries
     } catch (error) {
-      console.log(`  ⚠️ Failed to collect server coverage (dev mode): ${error}`)
+      log(`  ⚠️ Failed to collect server coverage (dev mode): ${error}`)
       if (this.client) {
         await this.client.close()
         this.client = null

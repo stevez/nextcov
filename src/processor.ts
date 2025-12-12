@@ -23,6 +23,7 @@ import type {
   CoverageSummary,
 } from './types.js'
 import type { CoverageMap } from 'istanbul-lib-coverage'
+import { log } from './logger.js'
 
 export class CoverageProcessor {
   private projectRoot: string
@@ -62,7 +63,7 @@ export class CoverageProcessor {
   async processPlaywrightCoverage(
     coverage: Array<{ url: string; source?: string; functions: unknown[] }>
   ): Promise<CoverageMap> {
-    console.log(`Processing ${coverage.length} Playwright coverage entries...`)
+    log(`Processing ${coverage.length} Playwright coverage entries...`)
 
     const v8Coverage = this.reader.readFromPlaywright(coverage)
     const filtered = this.reader.filterEntries(v8Coverage)
@@ -82,7 +83,7 @@ export class CoverageProcessor {
 
     // Process coverage entries if provided
     if (coverage && coverage.length > 0) {
-      console.log(`Processing ${coverage.length} Playwright coverage entries...`)
+      log(`Processing ${coverage.length} Playwright coverage entries...`)
       const coverageMap = await this.processPlaywrightCoverage(coverage)
       mergedMap = await this.reporter.mergeCoverageMaps(mergedMap, coverageMap)
     }
@@ -129,7 +130,7 @@ export class CoverageProcessor {
     const coveredFiles = new Set(coverageMap.files().map(normalizePath))
     const uncoveredFiles = sourceFiles.filter((f) => !coveredFiles.has(normalizePath(f)))
 
-    console.log(`Adding ${uncoveredFiles.length} source files for complete coverage...`)
+    log(`Adding ${uncoveredFiles.length} source files for complete coverage...`)
 
     await this.converter.addUncoveredFiles(coverageMap, uncoveredFiles)
   }

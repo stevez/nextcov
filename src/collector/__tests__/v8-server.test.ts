@@ -13,6 +13,15 @@ import {
 } from '../v8-server.js'
 import { createMockCoverageClient } from './test-utils.js'
 
+// Mock the logger module
+vi.mock('../../logger.js', () => ({
+  log: vi.fn(),
+  setLogging: vi.fn(),
+  isLoggingEnabled: vi.fn().mockReturnValue(false),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
 // Mock monocart-coverage-reports CDPClient
 vi.mock('monocart-coverage-reports', () => ({
   CDPClient: vi.fn(),
@@ -107,19 +116,18 @@ describe('V8ServerCoverageCollector', () => {
 
   describe('connect', () => {
     it('should return false when CDP connection fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockRejectedValue(new Error('Connection failed'))
 
       const result = await collector.connect()
 
       expect(result).toBe(false)
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
     })
 
     it('should return true when CDP connection succeeds', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
       const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
@@ -127,12 +135,10 @@ describe('V8ServerCoverageCollector', () => {
       const result = await collector.connect()
 
       expect(result).toBe(true)
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Connected to CDP'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Connected to CDP'))
     })
 
     it('should connect to the correct port', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
@@ -141,23 +147,20 @@ describe('V8ServerCoverageCollector', () => {
       await customCollector.connect()
 
       expect(CDPClient).toHaveBeenCalledWith({ port: 8888 })
-      consoleSpy.mockRestore()
     })
   })
 
   describe('triggerCoverageWrite', () => {
     it('should return null when not connected', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
 
       const result = await collector.triggerCoverageWrite()
 
       expect(result).toBeNull()
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
     })
 
     it('should call writeCoverage when connected', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue('/some/coverage/dir'),
       })
@@ -169,11 +172,9 @@ describe('V8ServerCoverageCollector', () => {
 
       expect(mockClient.writeCoverage).toHaveBeenCalled()
       expect(result).toBe('/some/coverage/dir')
-      consoleSpy.mockRestore()
     })
 
     it('should return config dir if writeCoverage returns empty', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(''),
       })
@@ -184,11 +185,10 @@ describe('V8ServerCoverageCollector', () => {
       const result = await collector.triggerCoverageWrite()
 
       expect(result).toBe(testCacheDir)
-      consoleSpy.mockRestore()
     })
 
     it('should handle writeCoverage errors', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockRejectedValue(new Error('Write failed')),
       })
@@ -199,8 +199,7 @@ describe('V8ServerCoverageCollector', () => {
       const result = await collector.triggerCoverageWrite()
 
       expect(result).toBeNull()
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to trigger coverage write'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to trigger coverage write'))
     })
   })
 
@@ -289,7 +288,6 @@ describe('V8ServerCoverageCollector', () => {
 
   describe('collect', () => {
     it('should return empty array when coverage dir does not exist', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue('/nonexistent/dir'),
       })
@@ -303,11 +301,9 @@ describe('V8ServerCoverageCollector', () => {
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      consoleSpy.mockRestore()
     })
 
     it('should return empty array when no coverage files', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(testCacheDir),
       })
@@ -322,11 +318,9 @@ describe('V8ServerCoverageCollector', () => {
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      consoleSpy.mockRestore()
     })
 
     it('should read and filter coverage files', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(testCacheDir),
       })
@@ -349,11 +343,9 @@ describe('V8ServerCoverageCollector', () => {
       // Should filter out node_modules
       expect(result.length).toBe(1)
       expect(result[0].url).toContain('.next/server/app')
-      consoleSpy.mockRestore()
     })
 
     it('should close CDP connection after collect', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(testCacheDir),
       })
@@ -368,7 +360,6 @@ describe('V8ServerCoverageCollector', () => {
       await collector.collect()
 
       expect(mockClient.close).toHaveBeenCalled()
-      consoleSpy.mockRestore()
     })
   })
 
@@ -386,8 +377,6 @@ describe('V8ServerCoverageCollector', () => {
     })
 
     it('should save coverage to file', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       // Create the cache directory first
       await fs.mkdir(testCacheDir, { recursive: true })
 
@@ -400,12 +389,9 @@ describe('V8ServerCoverageCollector', () => {
       const files = await fs.readdir(testCacheDir)
       expect(files.length).toBe(1)
       expect(files[0]).toMatch(/^server-v8-\d+\.json$/)
-      consoleSpy.mockRestore()
     })
 
     it('should save coverage with correct content', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       // Create the cache directory first
       await fs.mkdir(testCacheDir, { recursive: true })
 
@@ -431,7 +417,6 @@ describe('V8ServerCoverageCollector', () => {
       expect(data.result).toHaveLength(1)
       expect(data.result[0].url).toBe('file:///project/.next/server/app/page.js')
       expect(data.result[0].functions[0].functionName).toBe('Page')
-      consoleSpy.mockRestore()
     })
   })
 })
@@ -462,7 +447,6 @@ describe('startV8ServerCoverage and stopV8ServerCoverage', () => {
   })
 
   it('should start and connect via startV8ServerCoverage', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const mockClient = createMockCoverageClient()
     const { CDPClient } = await import('monocart-coverage-reports')
     vi.mocked(CDPClient).mockResolvedValue(mockClient)
@@ -470,23 +454,18 @@ describe('startV8ServerCoverage and stopV8ServerCoverage', () => {
     const result = await startV8ServerCoverage({ cdpPort: 9230 })
 
     expect(result).toBe(true)
-    consoleSpy.mockRestore()
   })
 
   it('should return false if connection fails', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const { CDPClient } = await import('monocart-coverage-reports')
     vi.mocked(CDPClient).mockRejectedValue(new Error('Connection failed'))
 
     const result = await startV8ServerCoverage({ cdpPort: 9230 })
 
     expect(result).toBe(false)
-    consoleSpy.mockRestore()
   })
 
   it('should return empty array if stopV8ServerCoverage called without start', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
     // Import fresh module to reset state
     vi.resetModules()
     const { stopV8ServerCoverage: freshStop } = await import('../v8-server.js')
@@ -494,6 +473,5 @@ describe('startV8ServerCoverage and stopV8ServerCoverage', () => {
     const result = await freshStop()
 
     expect(result).toEqual([])
-    consoleSpy.mockRestore()
   })
 })

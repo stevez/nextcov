@@ -14,6 +14,7 @@ import reports from 'istanbul-reports'
 import type { CoverageMap } from 'istanbul-lib-coverage'
 import type { ReporterType, Watermarks, CoverageSummary, CoverageMetric } from './types.js'
 import { DEFAULT_WATERMARKS, DEFAULT_REPORTERS, COVERAGE_FINAL_JSON } from './config.js'
+import { log } from './logger.js'
 
 export class IstanbulReporter {
   private outputDir: string
@@ -105,14 +106,14 @@ export class IstanbulReporter {
    * Print summary to console
    */
   printSummary(summary: CoverageSummary): void {
-    console.log('\n' + '='.repeat(70))
-    console.log('Coverage Summary')
-    console.log('='.repeat(70))
-    console.log(this.formatLine('Statements', summary.statements))
-    console.log(this.formatLine('Branches', summary.branches))
-    console.log(this.formatLine('Functions', summary.functions))
-    console.log(this.formatLine('Lines', summary.lines))
-    console.log('='.repeat(70) + '\n')
+    log('\n' + '='.repeat(70))
+    log('Coverage Summary')
+    log('='.repeat(70))
+    log(this.formatLine('Statements', summary.statements))
+    log(this.formatLine('Branches', summary.branches))
+    log(this.formatLine('Functions', summary.functions))
+    log(this.formatLine('Lines', summary.lines))
+    log('='.repeat(70) + '\n')
   }
 
   /**

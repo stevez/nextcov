@@ -5,6 +5,15 @@ import {
   createDevModeServerCollector,
 } from '../dev-server.js'
 
+// Mock the logger module
+vi.mock('../../logger.js', () => ({
+  log: vi.fn(),
+  setLogging: vi.fn(),
+  isLoggingEnabled: vi.fn().mockReturnValue(false),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
 // Mock chrome-remote-interface
 vi.mock('chrome-remote-interface', () => ({
   default: vi.fn(),
@@ -48,19 +57,17 @@ describe('DevModeServerCollector', () => {
 
   describe('connect', () => {
     it('should return false when CDP connection fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
       const CDP = (await import('chrome-remote-interface')).default
       vi.mocked(CDP).mockRejectedValue(new Error('Connection refused'))
 
       const result = await collector.connect()
 
       expect(result).toBe(false)
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
     })
 
     it('should return true when CDP connection succeeds', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockDebugger = {
         enable: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
@@ -85,11 +92,9 @@ describe('DevModeServerCollector', () => {
         callCount: true,
         detailed: true,
       })
-      consoleSpy.mockRestore()
     })
 
     it('should listen for scriptParsed events', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockDebugger = {
         enable: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
@@ -108,7 +113,6 @@ describe('DevModeServerCollector', () => {
       await collector.connect()
 
       expect(mockDebugger.on).toHaveBeenCalledWith('scriptParsed', expect.any(Function))
-      consoleSpy.mockRestore()
     })
   })
 
@@ -119,7 +123,6 @@ describe('DevModeServerCollector', () => {
     })
 
     it('should filter project scripts', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       let scriptParsedHandler: (params: { scriptId: string; url: string; sourceMapURL?: string }) => void
 
       const mockDebugger = {
@@ -154,24 +157,20 @@ describe('DevModeServerCollector', () => {
       expect(scripts.length).toBe(2)
       expect(scripts[0].url).toContain('src/app/page.tsx')
       expect(scripts[1].url).toContain('src/lib/utils.ts')
-
-      consoleSpy.mockRestore()
     })
   })
 
   describe('collect', () => {
     it('should return empty array when not connected', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
 
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
     })
 
     it('should collect coverage for project scripts', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       let scriptParsedHandler: (params: { scriptId: string; url: string; sourceMapURL?: string }) => void
 
       const sourceMap = {
@@ -233,12 +232,10 @@ describe('DevModeServerCollector', () => {
       expect(result[0].functions[0].functionName).toBe('Page')
       expect(result[0].sourceMapData).toBeDefined()
       expect(result[0].originalPath).toBe('src/app/page.tsx')
-
-      consoleSpy.mockRestore()
     })
 
     it('should handle collection errors gracefully', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
 
       const mockDebugger = {
         enable: vi.fn().mockResolvedValue(undefined),
@@ -261,12 +258,10 @@ describe('DevModeServerCollector', () => {
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to collect'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to collect'))
     })
 
     it('should handle getScriptSource errors for individual scripts', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       let scriptParsedHandler: (params: { scriptId: string; url: string; sourceMapURL?: string }) => void
 
       const mockDebugger = {
@@ -307,7 +302,6 @@ describe('DevModeServerCollector', () => {
 
       // Script with error should be filtered out
       expect(result.length).toBe(0)
-      consoleSpy.mockRestore()
     })
   })
 
@@ -318,8 +312,6 @@ describe('DevModeServerCollector', () => {
     })
 
     it('should return null for non-existent script', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const mockDebugger = {
         enable: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
@@ -339,14 +331,11 @@ describe('DevModeServerCollector', () => {
       const result = await collector.extractScriptSourceMap('non-existent')
 
       expect(result).toBeNull()
-      consoleSpy.mockRestore()
     })
   })
 
   describe('close', () => {
     it('should close CDP connection', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const mockDebugger = {
         enable: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
@@ -368,7 +357,6 @@ describe('DevModeServerCollector', () => {
 
       expect(mockClient.close).toHaveBeenCalled()
       expect(collector['client']).toBeNull()
-      consoleSpy.mockRestore()
     })
 
     it('should handle close when not connected', async () => {
