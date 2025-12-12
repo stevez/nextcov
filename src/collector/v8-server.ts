@@ -152,9 +152,27 @@ export class V8ServerCoverageCollector {
    */
   private filterEntries(entries: V8ServerCoverageEntry[]): V8ServerCoverageEntry[] {
     const buildDir = normalizePath(this.config.buildDir)
+    // Remove leading ./ from sourceRoot for matching
+    const sourceRoot = normalizePath(this.config.sourceRoot).replace(/^\.\//, '')
+
+    // Production build patterns
     const serverAppPattern = `${buildDir}/server/app`
     const serverChunksPattern = `${buildDir}/server/chunks`
     const serverSrcPattern = `${buildDir}/server/src`
+
+    // Debug: log URL patterns to understand coverage data
+    const allFileUrls = entries.filter((e) => e.url?.startsWith('file:'))
+    const nonNodeModuleUrls = allFileUrls.filter((e) => !e.url.includes('node_modules'))
+    console.log(`  Debug: Total entries=${entries.length}, file:URLs=${allFileUrls.length}, non-node_modules=${nonNodeModuleUrls.length}`)
+    console.log(`  Debug: sourceRoot="${sourceRoot}", pattern="/${sourceRoot}/"`)
+
+    if (nonNodeModuleUrls.length > 0) {
+      console.log(`  Debug: Sample non-node_modules URLs:`)
+      nonNodeModuleUrls.slice(0, 10).forEach((e) => console.log(`    ${e.url}`))
+    } else if (allFileUrls.length > 0) {
+      console.log(`  Debug: All file URLs are in node_modules. Sample:`)
+      allFileUrls.slice(0, 3).forEach((e) => console.log(`    ${e.url}`))
+    }
 
     return entries.filter((entry) => {
       const url = entry.url || ''
@@ -168,14 +186,18 @@ export class V8ServerCoverageCollector {
       // Normalize URL for pattern matching
       const normalizedUrl = normalizePath(url)
 
-      // Include server/app files (server components, API routes, server actions)
+      // Production mode: Include server/app files (server components, API routes, server actions)
       if (normalizedUrl.includes(serverAppPattern)) return true
 
-      // Include server/chunks (shared server code)
+      // Production mode: Include server/chunks (shared server code)
       if (normalizedUrl.includes(serverChunksPattern)) return true
 
-      // Include server/src (middleware)
+      // Production mode: Include server/src (middleware)
       if (normalizedUrl.includes(serverSrcPattern)) return true
+
+      // Dev mode: Include source files from sourceRoot
+      // In dev mode, Next.js serves original source files directly
+      if (sourceRoot && normalizedUrl.includes(`/${sourceRoot}/`)) return true
 
       return false
     }).filter((entry) => {

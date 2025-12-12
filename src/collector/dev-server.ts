@@ -118,6 +118,23 @@ export class DevModeServerCollector {
   }
 
   /**
+   * Check if this is a dev mode process by looking for webpack eval scripts.
+   * Dev mode uses eval-source-map which creates scripts with URLs like:
+   * webpack-internal:///./src/... or webpack://...
+   * Production mode doesn't have these.
+   */
+  isDevModeProcess(): boolean {
+    for (const script of this.scripts.values()) {
+      if (script.url.includes('webpack-internal://') ||
+          script.url.includes('webpack://') ||
+          script.url.includes('(app-pages-browser)')) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
    * Get all project scripts (src/ files)
    */
   getProjectScripts(): ScriptInfo[] {
@@ -235,6 +252,13 @@ export class DevModeServerCollector {
       await this.client.close()
       this.client = null
     }
+  }
+
+  /**
+   * Disconnect from CDP (alias for close)
+   */
+  async disconnect(): Promise<void> {
+    return this.close()
   }
 }
 

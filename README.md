@@ -44,8 +44,9 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 
 - **Next.js focused** - Built specifically for Next.js applications
 - **Client + Server coverage** - Collects coverage from both browser and Node.js server
-- **Dev mode support** - Works with `next dev` (no build required)
+- **Dev mode support** - Works with `next dev` (no build required), auto-detected
 - **Production mode support** - Works with `next build && next start` using external source maps
+- **Auto-detection** - Automatically detects dev vs production mode, no configuration needed
 - **V8 native coverage** - Uses Node.js built-in `NODE_V8_COVERAGE` for accurate server coverage
 - **Source map support** - Maps bundled code back to original TypeScript/JSX
 - **Vitest compatible** - Output merges seamlessly with Vitest coverage reports
@@ -78,13 +79,32 @@ npm install nextcov --save-dev
 npm install @playwright/test --save-dev
 ```
 
-## Example Project
+## Example Projects
+
+### nextcov-example
+
+See [nextcov-example](https://github.com/stevez/nextcov-example) for a simple Next.js App Router application demonstrating nextcov with Playwright E2E tests.
+
+**Highlights:**
+- Simple todo CRUD application
+- 100% branch coverage achieved with E2E tests
+- Demonstrates coverage for client components with conditional rendering
+
+| Metric | Coverage |
+|--------|----------|
+| Statements | 100% |
+| Branches | 100% |
+| Functions | 100% |
+| Lines | 100% |
+
+### restaurant-reviews-platform
 
 See [restaurant-reviews-platform](https://github.com/stevez/restaurant-reviews-platform) for a complete working example of nextcov integrated with a Next.js App Router application using Playwright E2E tests and Vitest unit tests.
 
-### Coverage Results
-
-The example project demonstrates how nextcov bridges the coverage gap:
+**Highlights:**
+- Full-stack Next.js application with authentication
+- Combines unit tests (Vitest) with E2E tests (Playwright)
+- Demonstrates merging coverage from multiple sources
 
 | Coverage Type | Lines | Description |
 |---------------|-------|-------------|
@@ -92,10 +112,11 @@ The example project demonstrates how nextcov bridges the coverage gap:
 | **E2E Tests** (Playwright + nextcov) | ~46% | Server components, pages, user flows |
 | **Merged** | ~88% | Complete picture of your application |
 
-### Key Files
+### Key Files (restaurant-reviews-platform)
 
-- [e2e/playwright.config.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/playwright.config.ts) - Playwright config with nextcov settings
+- [playwright.config.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/playwright.config.ts) - Playwright config with nextcov settings
 - [e2e/fixtures.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/fixtures.ts) - Coverage collection fixture
+- [e2e/global-setup.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-setup.ts) - Start server coverage (auto-detects dev/production)
 - [e2e/global-teardown.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-teardown.ts) - Coverage finalization
 - [scripts/merge-coverage.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/scripts/merge-coverage.ts) - Merge unit + E2E coverage
 - [next.config.js](https://github.com/stevez/restaurant-reviews-platform/blob/main/next.config.js) - Next.js source map configuration
@@ -161,6 +182,7 @@ export const nextcov: NextcovConfig = {
 
 const config: PlaywrightConfigWithNextcov = {
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
   use: {
     baseURL: 'http://localhost:3000',
@@ -198,17 +220,32 @@ export const test = base.extend({
 export { expect }
 ```
 
-### 4. Add Global Teardown
+### 4. Add Global Setup and Teardown
+
+Create `e2e/global-setup.ts`:
+
+```typescript
+import * as path from 'path'
+import { startServerCoverage, loadNextcovConfig } from 'nextcov/playwright'
+
+export default async function globalSetup() {
+  // Load config from playwright.config.ts
+  const config = await loadNextcovConfig(
+    path.join(process.cwd(), 'playwright.config.ts')
+  )
+  // Start server coverage collection (auto-detects dev vs production mode)
+  await startServerCoverage(config)
+}
+```
 
 Create `e2e/global-teardown.ts`:
 
 ```typescript
 import * as path from 'path'
-import type { FullConfig } from '@playwright/test'
 import { finalizeCoverage } from 'nextcov/playwright'
 import { loadNextcovConfig } from 'nextcov'
 
-export default async function globalTeardown(_config: FullConfig) {
+export default async function globalTeardown() {
   // Load config from playwright.config.ts
   const config = await loadNextcovConfig(
     path.join(process.cwd(), 'playwright.config.ts')
@@ -252,6 +289,30 @@ The key environment variables:
 
 nextcov supports collecting coverage directly from `next dev` without requiring a production build. This is useful for faster iteration during development.
 
+### Auto-Detection
+
+nextcov **automatically detects** whether you're running in dev mode or production mode. You don't need to configure anything - just use the same `globalSetup` and `globalTeardown` for both modes.
+
+How it works:
+- **Dev mode** (`next dev --inspect=9230`): Next.js spawns a worker process on port 9231 (inspect port + 1). nextcov connects to the worker via CDP and uses `Profiler.startPreciseCoverage()` to collect coverage.
+- **Production mode** (`next start --inspect=9230`): Next.js runs on port 9230 directly. nextcov uses `NODE_V8_COVERAGE` env var to collect coverage, triggered via CDP.
+
+The auto-detection output looks like:
+```
+📊 Auto-detecting server mode...
+  Trying dev mode (worker port 9231)...
+  ✓ Dev mode detected (webpack eval scripts found)
+  ✓ Server coverage collection started
+```
+
+Or for production mode:
+```
+📊 Auto-detecting server mode...
+  Trying dev mode (worker port 9231)...
+  ⚠️ Failed to connect to CDP (dev mode): Error: connect ECONNREFUSED
+  ℹ️ Production mode will be used (NODE_V8_COVERAGE + port 9230)
+```
+
 ### Running Tests Against Dev Server
 
 ```bash
@@ -270,6 +331,8 @@ npx playwright test
 | **Source Maps** | Inline (base64 in JS) | External (.map files) |
 | **Build Required** | No | Yes |
 | **Hot Reload** | Yes | No |
+| **Build Directory** | Always `.next` | Configurable (`buildDir`) |
+| **CDP Port** | `cdpPort + 1` (e.g., 9231) | `cdpPort` (e.g., 9230) |
 | **Performance** | Slower | Faster |
 | **Recommended For** | Development iteration | CI/CD, final coverage |
 
@@ -361,6 +424,19 @@ npx ts-node --esm scripts/merge-coverage.ts
 ## API Reference
 
 ### Playwright Integration (`nextcov/playwright`)
+
+#### `startServerCoverage(config?)`
+
+Starts server-side coverage collection. Call in globalSetup. Auto-detects dev mode vs production mode.
+
+```typescript
+import { startServerCoverage, loadNextcovConfig } from 'nextcov/playwright'
+
+const config = await loadNextcovConfig('./playwright.config.ts')
+await startServerCoverage(config)
+```
+
+Returns `true` if dev mode was detected, `false` for production mode.
 
 #### `collectClientCoverage(page, testInfo, use)`
 

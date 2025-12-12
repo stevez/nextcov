@@ -14,6 +14,7 @@ import {
   DEFAULT_INCLUDE_PATTERNS,
   DEFAULT_EXCLUDE_PATTERNS,
   DEFAULT_REPORTERS,
+  resolveNextcovConfig,
   type NextcovConfig,
   type ResolvedNextcovConfig,
   type ResolvedDevModeOptions,
@@ -23,11 +24,17 @@ import {
   filterAppCoverage,
   ClientCoverageCollector,
   V8ServerCoverageCollector,
+  DevModeServerCollector,
   type V8CoverageEntry,
   type PlaywrightCoverageEntry,
   type DevServerCoverageEntry,
   type V8ServerCoverageEntry,
 } from '../collector/index.js'
+
+// Module-level collector for persisting between globalSetup and globalTeardown
+let devModeCollector: DevModeServerCollector | null = null
+// Track if dev mode was detected (to force .next as buildDir)
+let isDevMode = false
 
 export interface PlaywrightCoverageOptions {
   /** Project root directory (default: process.cwd()) */
@@ -79,6 +86,78 @@ const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
 }
 
 /**
+ * Start server-side coverage collection in dev mode.
+ *
+ * Call this function in globalSetup BEFORE any tests run.
+ * This ensures the V8 Profiler is started before any server code executes
+ * during page requests.
+ *
+ * @example
+ * ```typescript
+ * // In global-setup.ts
+ * import { startServerCoverage, loadNextcovConfig } from 'nextcov/playwright'
+ *
+ * export default async function globalSetup() {
+ *   const config = await loadNextcovConfig()
+ *   await startServerCoverage(config)
+ * }
+ * ```
+ */
+export async function startServerCoverage(
+  config?: NextcovConfig | ResolvedNextcovConfig
+): Promise<boolean> {
+  const resolved = config && 'cacheDir' in config
+    ? config as ResolvedNextcovConfig
+    : resolveNextcovConfig(config)
+
+  // Auto-detect dev mode vs production mode:
+  // - Dev mode: next dev --inspect=9230 spawns worker on port 9231 (inspect port + 1)
+  // - Production mode: next start --inspect=9230 runs on port 9230 (no worker)
+  //
+  // The user configures cdpPort to the inspect port (e.g., 9230).
+  // We try cdpPort + 1 first (dev worker). If successful, it's dev mode.
+  // If the connection fails, production mode will use cdpPort directly.
+  const devWorkerPort = resolved.cdpPort + 1 // e.g., 9231 (worker port for --inspect=9230)
+  const productionPort = resolved.cdpPort // e.g., 9230 (main process port)
+
+  console.log('📊 Auto-detecting server mode...')
+  console.log(`  Trying dev mode (worker port ${devWorkerPort})...`)
+
+  // Try dev mode (connect to worker port)
+  devModeCollector = new DevModeServerCollector({
+    cdpPort: devWorkerPort,
+    sourceRoot: resolved.sourceRoot.replace(/^\.\//, ''),
+  })
+
+  const devConnected = await devModeCollector.connect()
+  if (devConnected) {
+    // Wait a bit for scripts to be parsed, then check if this is actually dev mode
+    // Dev mode has webpack eval scripts, production mode doesn't
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    if (devModeCollector.isDevModeProcess()) {
+      isDevMode = true
+      console.log(`  ✓ Dev mode detected (webpack eval scripts found)`)
+      console.log('  ✓ Server coverage collection started')
+      return true
+    } else {
+      // Connected but no webpack scripts - this is production mode
+      console.log(`  ℹ️ Connected to port ${devWorkerPort} but no webpack eval scripts found`)
+      console.log(`  ℹ️ This appears to be production mode, not dev mode`)
+      // Disconnect and fall through to production mode
+      await devModeCollector.disconnect()
+      devModeCollector = null
+    }
+  }
+
+  // Dev worker port not available or no webpack scripts - production mode will be used
+  devModeCollector = null
+  isDevMode = false
+  console.log(`  ℹ️ Production mode will be used (NODE_V8_COVERAGE + port ${productionPort})`)
+  return false
+}
+
+/**
  * Finalize coverage collection and generate reports.
  *
  * This function should be called in globalTeardown to:
@@ -109,6 +188,12 @@ export async function finalizeCoverage(
 ): Promise<CoverageResult | null> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
 
+  // In dev mode, Next.js always uses .next as the build directory
+  // regardless of what's configured (buildDir config is for production builds)
+  if (isDevMode) {
+    opts.buildDir = '.next'
+  }
+
   // Derive cacheDir from outputDir
   const cacheDir = (options as ResolvedNextcovConfig)?.cacheDir || path.join(opts.outputDir, '.cache')
 
@@ -118,22 +203,40 @@ export async function finalizeCoverage(
   let serverCoverage: Array<V8CoverageEntry | DevServerCoverageEntry | V8ServerCoverageEntry> = []
 
   let v8Collector: V8ServerCoverageCollector | null = null
+  // Use module-level devModeCollector if started in globalSetup
+  let localDevModeCollector: DevModeServerCollector | null = devModeCollector
 
   if (opts.collectServer) {
-    // Use NODE_V8_COVERAGE + CDP trigger approach
-    console.log('📊 Collecting server-side coverage (NODE_V8_COVERAGE mode)...')
-    v8Collector = new V8ServerCoverageCollector({
-      cdpPort: opts.cdpPort,
-      buildDir: opts.buildDir,
-      sourceRoot: opts.sourceRoot,
-      v8CoverageDir: opts.v8CoverageDir,
-    })
-
-    const connected = await v8Collector.connect()
-    if (connected) {
-      serverCoverage = await v8Collector.collect()
+    // Auto-detect: If devModeCollector was started in globalSetup, use dev mode
+    if (localDevModeCollector) {
+      // Dev mode: collector was started in globalSetup
+      console.log('📊 Collecting server-side coverage (dev mode)...')
+      serverCoverage = await localDevModeCollector.collect()
       if (serverCoverage.length > 0) {
-        console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries (V8 mode)`)
+        console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries (dev mode)`)
+      }
+      // Clear module-level references
+      devModeCollector = null
+      isDevMode = false
+    } else {
+      // Production mode: Use NODE_V8_COVERAGE + CDP trigger approach
+      // Production mode uses cdpPort directly (e.g., 9230)
+      // because next start runs on the main process at the inspect port
+      const productionPort = opts.cdpPort
+      console.log('📊 Collecting server-side coverage (production mode)...')
+      v8Collector = new V8ServerCoverageCollector({
+        cdpPort: productionPort,
+        buildDir: opts.buildDir,
+        sourceRoot: opts.sourceRoot,
+        v8CoverageDir: opts.v8CoverageDir,
+      })
+
+      const connected = await v8Collector.connect()
+      if (connected) {
+        serverCoverage = await v8Collector.collect()
+        if (serverCoverage.length > 0) {
+          console.log(`  ✓ Collected ${serverCoverage.length} server coverage entries (production mode)`)
+        }
       }
     }
   }

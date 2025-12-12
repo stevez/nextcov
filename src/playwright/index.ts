@@ -7,6 +7,10 @@
 
 export {
   finalizeCoverage,
+  startServerCoverage,
   collectClientCoverage,
   type PlaywrightCoverageOptions,
 } from './fixture.js'
+
+// Re-export loadNextcovConfig for convenience
+export { loadNextcovConfig, resolveNextcovConfig } from '../config.js'

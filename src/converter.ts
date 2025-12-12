@@ -51,22 +51,48 @@ export class CoverageConverter {
     // Load source maps from V8 cache if available
     this.sourceMapLoader.loadFromV8Cache(coverage)
 
+    // Debug: Track conversion results
+    let successCount = 0
+    let failCount = 0
+    const failReasons: Record<string, number> = {}
+
     // Process each script coverage entry
     for (const entry of coverage.result) {
       try {
         const istanbulCoverage = await this.convertEntry(entry)
         if (istanbulCoverage && Object.keys(istanbulCoverage).length > 0) {
           coverageMap.merge(istanbulCoverage)
+          successCount++
+        } else {
+          failCount++
+          failReasons['null result'] = (failReasons['null result'] || 0) + 1
         }
       } catch (error) {
-        console.warn(`Failed to convert coverage for ${entry.url}:`, error)
+        failCount++
+        const reason = error instanceof Error ? error.message.substring(0, 50) : 'unknown'
+        failReasons[reason] = (failReasons[reason] || 0) + 1
       }
     }
+
+    console.log(`  Debug: Converted ${successCount} entries, failed ${failCount}`)
+    if (failCount > 0 && Object.keys(failReasons).length > 0) {
+      console.log(`  Debug: Fail reasons:`, Object.entries(failReasons).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(', '))
+    }
+
+    // Debug: Show files in coverage map before normalization
+    const filesBeforeNorm = coverageMap.files()
+    console.log(`  Debug: Files before normalization (${filesBeforeNorm.length}):`)
+    filesBeforeNorm.slice(0, 10).forEach(f => console.log(`    ${f}`))
 
     // Normalize file paths to Windows format for merging with Vitest coverage
     // Note: We skip transformWithSourceMaps because ast-v8-to-istanbul already
     // applies source maps during conversion. We just need to fix the paths.
     const normalizedMap = this.normalizeFilePaths(coverageMap)
+
+    // Debug: Show files after normalization
+    const filesAfterNorm = normalizedMap.files()
+    console.log(`  Debug: Files after normalization (${filesAfterNorm.length}):`)
+    filesAfterNorm.slice(0, 10).forEach(f => console.log(`    ${f}`))
 
     // Note: We don't apply the sourceFilter here because extractSourcePath
     // already filters to only keep files with src/ in their path.
@@ -453,7 +479,8 @@ export class CoverageConverter {
       const normalizedPath = this.extractSourcePath(filePath)
 
       if (!normalizedPath) {
-        // Skip files that don't have a valid src path
+        // Debug: Log why files are being skipped
+        console.log(`  Debug: Skipping file (no src/ path): ${filePath}`)
         continue
       }
 
@@ -566,10 +593,6 @@ export class CoverageConverter {
         sourceMap = this.sourceMapLoader.extractInlineSourceMap(code) || undefined
         if (!filePath) {
           filePath = this.sourceMapLoader.urlToFilePath(url)
-        }
-        // Debug: Check if we found inline source map
-        if (process.env.DEBUG_COVERAGE && !sourceMap) {
-          console.log(`  [DEBUG] No inline sourcemap for: ${debugUrl}`)
         }
       }
     }
