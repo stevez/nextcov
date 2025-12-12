@@ -57,6 +57,7 @@ export class DevModeServerCollector {
   private scripts: Map<string, ScriptInfo> = new Map()
   private extractor: DevModeSourceMapExtractor
   private CDP: typeof import('chrome-remote-interface')['default'] | null = null
+  private webpackScriptResolvers: Array<() => void> = []
 
   constructor(config?: Partial<DevServerCollectorConfig>) {
     this.config = {
@@ -97,6 +98,17 @@ export class DevModeServerCollector {
           hasSourceMap: !!params.sourceMapURL,
           sourceMapUrl: params.sourceMapURL,
         })
+
+        // Check if this is a webpack script and resolve any waiting promises
+        if (params.url.includes('webpack-internal://') ||
+            params.url.includes('webpack://') ||
+            params.url.includes('(app-pages-browser)')) {
+          // Resolve all waiting promises
+          for (const resolve of this.webpackScriptResolvers) {
+            resolve()
+          }
+          this.webpackScriptResolvers = []
+        }
       })
 
       await Debugger.enable()
@@ -133,6 +145,41 @@ export class DevModeServerCollector {
       }
     }
     return false
+  }
+
+  /**
+   * Wait for webpack scripts to be parsed.
+   *
+   * This is event-driven: it resolves immediately if webpack scripts are already
+   * present, or waits for the next scriptParsed event that contains webpack URLs.
+   *
+   * @param timeoutMs Maximum time to wait (default: 10000ms)
+   * @returns true if webpack scripts were found, false if timed out
+   */
+  async waitForWebpackScripts(timeoutMs: number = 10000): Promise<boolean> {
+    // Already have webpack scripts?
+    if (this.isDevModeProcess()) {
+      return true
+    }
+
+    // Wait for a scriptParsed event with webpack URL
+    return new Promise<boolean>((resolve) => {
+      const timeoutId = setTimeout(() => {
+        // Remove this resolver from the array
+        const index = this.webpackScriptResolvers.indexOf(resolveWithTrue)
+        if (index !== -1) {
+          this.webpackScriptResolvers.splice(index, 1)
+        }
+        resolve(false)
+      }, timeoutMs)
+
+      const resolveWithTrue = () => {
+        clearTimeout(timeoutId)
+        resolve(true)
+      }
+
+      this.webpackScriptResolvers.push(resolveWithTrue)
+    })
   }
 
   /**

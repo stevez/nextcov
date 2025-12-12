@@ -125,6 +125,7 @@ export async function startServerCoverage(
   const productionPort = resolved.cdpPort // e.g., 9230 (main process port)
 
   log('📊 Auto-detecting server mode...')
+  log(`  Base URL: ${resolved.devMode.baseUrl}`)
   log(`  Trying dev mode (worker port ${devWorkerPort})...`)
 
   // Try dev mode (connect to worker port)
@@ -135,23 +136,35 @@ export async function startServerCoverage(
 
   const devConnected = await devModeCollector.connect()
   if (devConnected) {
-    // Wait a bit for scripts to be parsed, then check if this is actually dev mode
-    // Dev mode has webpack eval scripts, production mode doesn't
-    await new Promise(resolve => setTimeout(resolve, 500))
+    // On cold starts, webpack hasn't compiled anything yet.
+    // Make a warmup request to trigger compilation, then wait for scriptParsed events.
+    const startTime = Date.now()
 
-    if (devModeCollector.isDevModeProcess()) {
+    // Trigger webpack compilation with a non-blocking warmup request
+    // We don't need to wait for the HTTP response - we only care about scriptParsed events
+    const baseUrl = resolved.devMode.baseUrl
+    log(`  Triggering webpack compilation with warmup request to ${baseUrl}...`)
+    fetch(baseUrl).catch(() => {
+      // Ignore errors - the request just triggers compilation
+    })
+
+    // Wait for webpack scripts to be parsed (triggered by the warmup request)
+    const foundWebpack = await devModeCollector.waitForWebpackScripts(15000)
+
+    if (foundWebpack) {
       isDevMode = true
-      log(`  ✓ Dev mode detected (webpack eval scripts found)`)
+      const waitedMs = Date.now() - startTime
+      log(`  ✓ Dev mode detected (webpack scripts found after ${waitedMs}ms)`)
       log('  ✓ Server coverage collection started')
       return true
-    } else {
-      // Connected but no webpack scripts - this is production mode
-      log(`  ℹ️ Connected to port ${devWorkerPort} but no webpack eval scripts found`)
-      log(`  ℹ️ This appears to be production mode, not dev mode`)
-      // Disconnect and fall through to production mode
-      await devModeCollector.disconnect()
-      devModeCollector = null
     }
+
+    // Connected but no webpack scripts after timeout - this is production mode
+    log(`  ℹ️ Connected to port ${devWorkerPort} but no webpack eval scripts found`)
+    log(`  ℹ️ This appears to be production mode, not dev mode`)
+    // Disconnect and fall through to production mode
+    await devModeCollector.disconnect()
+    devModeCollector = null
   }
 
   // Dev worker port not available or no webpack scripts - production mode will be used
