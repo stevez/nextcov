@@ -13,6 +13,7 @@ import libCoverage from 'istanbul-lib-coverage'
 import type { CoverageMap, CoverageMapData, FileCoverageData } from 'istanbul-lib-coverage'
 import type { MergerConfig, MergeOptions, MergeResult, CoverageSummary, CoverageMetric, ReporterType } from './types.js'
 import { DEFAULT_REPORTERS, DEFAULT_WATERMARKS } from './config.js'
+import { log } from './logger.js'
 
 // Default configuration
 const DEFAULT_MERGER_CONFIG: MergerConfig = {
@@ -88,7 +89,7 @@ export class CoverageMerger {
       : null
 
     if (!baseMap) {
-      console.log('No base coverage found, using additional coverage only')
+      log('No base coverage found, using additional coverage only')
       return {
         coverageMap: additionalMap,
         summary: this.getSummary(additionalMap),
@@ -634,8 +635,8 @@ export interface MergeCoverageResult {
  * })
  *
  * if (result) {
- *   console.log(`Merged ${result.stats.mergedFiles} files`)
- *   console.log(`Lines: ${result.summary.lines.pct}%`)
+ *   log(`Merged ${result.stats.mergedFiles} files`)
+ *   log(`Lines: ${result.summary.lines.pct}%`)
  * }
  * ```
  */
@@ -653,11 +654,11 @@ export async function mergeCoverage(options: MergeCoverageOptions): Promise<Merg
   const libReport = await import('istanbul-lib-report')
   const reports = await import('istanbul-reports')
 
-  const log = (msg: string) => {
-    if (verbose) console.log(msg)
+  const verboseLog = (msg: string) => {
+    if (verbose) log(msg)
   }
 
-  log('Merging coverage reports...\n')
+  verboseLog('Merging coverage reports...\n')
 
   // Create merger instance
   const merger = createMerger({ applyFixes: true })
@@ -669,13 +670,13 @@ export async function mergeCoverage(options: MergeCoverageOptions): Promise<Merg
     return null
   }
 
-  log(`  Loaded e2e coverage: ${e2eCoverageMap.files().length} files`)
+  verboseLog(`  Loaded e2e coverage: ${e2eCoverageMap.files().length} files`)
 
   const e2eSummary = merger.getSummary(e2eCoverageMap)
 
   // Check for unit coverage
   if (!existsSync(unitCoveragePath)) {
-    log('  No unit test coverage found, using e2e only')
+    verboseLog('  No unit test coverage found, using e2e only')
 
     // Generate reports for E2E only
     await generateReports(e2eCoverageMap, outputDir, reporters, libReport.default, reports.default)
@@ -695,20 +696,20 @@ export async function mergeCoverage(options: MergeCoverageOptions): Promise<Merg
   }
 
   // Smart merge using "more items wins" strategy
-  log('  Found unit test coverage, performing smart merge...')
+  verboseLog('  Found unit test coverage, performing smart merge...')
 
   const mergeResult = await merger.mergeWithBase(e2eCoverageMap, {
     baseCoveragePath: unitCoveragePath,
   })
 
-  log(`  Merged coverage: ${mergeResult.coverageMap.files().length} files`)
-  log(`    - Base (unit) files: ${mergeResult.stats.baseFiles}`)
-  log(`    - Additional (e2e) files: ${mergeResult.stats.additionalFiles}`)
-  log(`    - New files from e2e: ${mergeResult.stats.newFiles}`)
+  verboseLog(`  Merged coverage: ${mergeResult.coverageMap.files().length} files`)
+  verboseLog(`    - Base (unit) files: ${mergeResult.stats.baseFiles}`)
+  verboseLog(`    - Additional (e2e) files: ${mergeResult.stats.additionalFiles}`)
+  verboseLog(`    - New files from e2e: ${mergeResult.stats.newFiles}`)
 
   // Generate reports
   await generateReports(mergeResult.coverageMap, outputDir, reporters, libReport.default, reports.default)
-  log(`\nCoverage reports generated at: ${outputDir}`)
+  verboseLog(`\nCoverage reports generated at: ${outputDir}`)
 
   // Load unit coverage for comparison
   const unitCoverageMap = await merger.loadCoverageJson(unitCoveragePath)
@@ -769,9 +770,9 @@ function relativePath(projectRoot: string, filePath: string): string {
  * Print coverage summary table to console
  */
 export function printCoverageSummary(summary: CoverageSummary, title: string = 'Coverage Summary'): void {
-  console.log('\n' + '='.repeat(70))
-  console.log(title)
-  console.log('='.repeat(70))
+  log('\n' + '='.repeat(70))
+  log(title)
+  log('='.repeat(70))
 
   const [lowThreshold, highThreshold] = DEFAULT_WATERMARKS.lines ?? [50, 80]
   const formatLine = (label: string, data: CoverageMetric) => {
@@ -781,11 +782,11 @@ export function printCoverageSummary(summary: CoverageSummary, title: string = '
     return `${label.padEnd(15)} | ${pct.padStart(7)}% | ${covered.padStart(12)} | ${status}`
   }
 
-  console.log(formatLine('Statements', summary.statements))
-  console.log(formatLine('Branches', summary.branches))
-  console.log(formatLine('Functions', summary.functions))
-  console.log(formatLine('Lines', summary.lines))
-  console.log('='.repeat(70) + '\n')
+  log(formatLine('Statements', summary.statements))
+  log(formatLine('Branches', summary.branches))
+  log(formatLine('Functions', summary.functions))
+  log(formatLine('Lines', summary.lines))
+  log('='.repeat(70) + '\n')
 }
 
 /**
@@ -796,10 +797,10 @@ export function printCoverageComparison(
   e2e: CoverageSummary,
   merged: CoverageSummary
 ): void {
-  console.log('\nVerification (Unit vs E2E vs Merged):')
-  console.log('')
-  console.log('                    Unit Tests          E2E Tests           Merged')
-  console.log('  ─────────────────────────────────────────────────────────────────────')
+  log('\nVerification (Unit vs E2E vs Merged):')
+  log('')
+  log('                    Unit Tests          E2E Tests           Merged')
+  log('  ─────────────────────────────────────────────────────────────────────')
 
   const formatMetric = (
     name: string,
@@ -815,8 +816,8 @@ export function printCoverageComparison(
     return `  ${name.padEnd(12)} ${unitStr.padStart(18)}  ${e2eStr.padStart(18)}  ${mergedStr.padStart(18)}`
   }
 
-  console.log(formatMetric('Statements', unit?.statements, e2e.statements, merged.statements))
-  console.log(formatMetric('Branches', unit?.branches, e2e.branches, merged.branches))
-  console.log(formatMetric('Functions', unit?.functions, e2e.functions, merged.functions))
-  console.log(formatMetric('Lines', unit?.lines, e2e.lines, merged.lines))
+  log(formatMetric('Statements', unit?.statements, e2e.statements, merged.statements))
+  log(formatMetric('Branches', unit?.branches, e2e.branches, merged.branches))
+  log(formatMetric('Functions', unit?.functions, e2e.functions, merged.functions))
+  log(formatMetric('Lines', unit?.lines, e2e.lines, merged.lines))
 }

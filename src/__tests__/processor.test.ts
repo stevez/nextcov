@@ -16,6 +16,7 @@ describe('CoverageProcessor', () => {
     testOutputDir = join(tmpdir(), `processor-test-${Date.now()}`)
     processor = new CoverageProcessor(projectRoot, {
       outputDir: testOutputDir,
+      reporters: ['json'], // Avoid text-summary console output during tests
     })
   })
 
@@ -143,6 +144,7 @@ describe('CoverageProcessor', () => {
         outputDir: testOutputDir,
         sourceRoot: './src',
         include: ['src/**/*.ts'],
+        reporters: ['json'], // Avoid text-summary console output during tests
       })
 
       // This tests the addUncoveredFiles path

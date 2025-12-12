@@ -66,16 +66,22 @@ function createTestCoverageMap(files: Record<string, {
 describe('IstanbulReporter', () => {
   let reporter: IstanbulReporter
   let testOutputDir: string
+  let consoleSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
     testOutputDir = join(tmpdir(), `coverage-test-${Date.now()}`)
+    // Use only json reporter to avoid text-summary console output during tests
     reporter = new IstanbulReporter({
       outputDir: testOutputDir,
       projectRoot: '/project',
+      reporters: ['json'],
     })
+    // Suppress any console output during tests
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
   afterEach(async () => {
+    consoleSpy.mockRestore()
     // Clean up test directory
     try {
       await fs.rm(testOutputDir, { recursive: true, force: true })
@@ -91,8 +97,13 @@ describe('IstanbulReporter', () => {
     })
 
     it('should use default reporters', () => {
-      expect(reporter['reporters']).toContain('html')
-      expect(reporter['reporters']).toContain('lcov')
+      // Create a reporter without custom reporters to test defaults
+      const defaultReporter = new IstanbulReporter({
+        outputDir: testOutputDir,
+        projectRoot: '/project',
+      })
+      expect(defaultReporter['reporters']).toContain('html')
+      expect(defaultReporter['reporters']).toContain('lcov')
     })
 
     it('should accept custom watermarks', () => {
@@ -321,12 +332,8 @@ describe('IstanbulReporter', () => {
       })
       const summary = reporter.getSummary(map)
 
-      // Spy on console.log to suppress output
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
+      // Console is already mocked in beforeEach
       expect(() => reporter.printSummary(summary)).not.toThrow()
-
-      consoleSpy.mockRestore()
     })
   })
 

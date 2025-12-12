@@ -15,6 +15,15 @@ import {
   printCoverageComparison,
 } from '../merger.js'
 
+// Mock the logger module
+vi.mock('../logger.js', () => ({
+  log: vi.fn(),
+  setLogging: vi.fn(),
+  isLoggingEnabled: vi.fn().mockReturnValue(false),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
 // Helper to create a coverage map with test data
 function createTestCoverageMap(files: Record<string, {
   statements?: Record<string, number>
@@ -403,7 +412,6 @@ describe('mergeWithBaseCoverage', () => {
   })
 
   it('should handle non-existent base coverage', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const additionalMap = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 } },
     })
@@ -412,7 +420,6 @@ describe('mergeWithBaseCoverage', () => {
 
     expect(result.stats.baseFiles).toBe(0)
     expect(result.stats.newFiles).toBe(1)
-    consoleSpy.mockRestore()
   })
 })
 
@@ -457,6 +464,7 @@ describe('mergeCoverage', () => {
       unitCoveragePath: '/non/existent/unit.json',
       e2eCoveragePath: e2ePath,
       outputDir: join(testDir, 'output'),
+      reporters: ['json'], // Avoid text-summary console output
     })
 
     expect(result).not.toBeNull()
@@ -481,6 +489,7 @@ describe('mergeCoverage', () => {
       unitCoveragePath: unitPath,
       e2eCoveragePath: e2ePath,
       outputDir: join(testDir, 'output'),
+      reporters: ['json'], // Avoid text-summary console output
     })
 
     expect(result).not.toBeNull()
@@ -490,7 +499,7 @@ describe('mergeCoverage', () => {
   })
 
   it('should support verbose mode', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { log } = await import('../logger.js')
     const e2eMap = createTestCoverageMap({
       '/e2e.ts': { statements: { '0': 1 } },
     })
@@ -503,10 +512,10 @@ describe('mergeCoverage', () => {
       e2eCoveragePath: e2ePath,
       outputDir: join(testDir, 'output'),
       verbose: true,
+      reporters: ['json'], // Avoid text-summary console output
     })
 
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(log).toHaveBeenCalled()
   })
 
   it('should identify E2E-only files', async () => {
@@ -528,6 +537,7 @@ describe('mergeCoverage', () => {
       e2eCoveragePath: e2ePath,
       outputDir: join(testDir, 'output'),
       projectRoot: '/',
+      reporters: ['json'], // Avoid text-summary console output
     })
 
     expect(result).not.toBeNull()
@@ -536,8 +546,8 @@ describe('mergeCoverage', () => {
 })
 
 describe('printCoverageSummary', () => {
-  it('should print summary without throwing', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('should print summary without throwing', async () => {
+    const { log } = await import('../logger.js')
 
     const summary = {
       statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
@@ -547,12 +557,11 @@ describe('printCoverageSummary', () => {
     }
 
     expect(() => printCoverageSummary(summary)).not.toThrow()
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(log).toHaveBeenCalled()
   })
 
-  it('should accept custom title', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('should accept custom title', async () => {
+    const { log } = await import('../logger.js')
 
     const summary = {
       statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
@@ -563,13 +572,10 @@ describe('printCoverageSummary', () => {
 
     printCoverageSummary(summary, 'Custom Title')
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Custom Title'))
-    consoleSpy.mockRestore()
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('Custom Title'))
   })
 
   it('should show different status for different coverage levels', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
     const summary = {
       statements: { total: 10, covered: 9, skipped: 0, pct: 90 },  // high
       branches: { total: 10, covered: 6, skipped: 0, pct: 60 },   // medium
@@ -578,14 +584,12 @@ describe('printCoverageSummary', () => {
     }
 
     printCoverageSummary(summary)
-
-    consoleSpy.mockRestore()
   })
 })
 
 describe('printCoverageComparison', () => {
-  it('should print comparison with all values', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('should print comparison with all values', async () => {
+    const { log } = await import('../logger.js')
 
     const unit = {
       statements: { total: 10, covered: 5, skipped: 0, pct: 50 },
@@ -607,13 +611,10 @@ describe('printCoverageComparison', () => {
     }
 
     expect(() => printCoverageComparison(unit, e2e, merged)).not.toThrow()
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(log).toHaveBeenCalled()
   })
 
   it('should handle undefined unit coverage', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
     const e2e = {
       statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
       branches: { total: 5, covered: 4, skipped: 0, pct: 80 },
@@ -628,7 +629,6 @@ describe('printCoverageComparison', () => {
     }
 
     expect(() => printCoverageComparison(undefined, e2e, merged)).not.toThrow()
-    consoleSpy.mockRestore()
   })
 })
 

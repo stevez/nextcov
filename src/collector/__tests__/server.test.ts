@@ -11,6 +11,15 @@ import {
 } from '../server.js'
 import { createMockCoverageClient } from './test-utils.js'
 
+// Mock the logger module
+vi.mock('../../logger.js', () => ({
+  log: vi.fn(),
+  setLogging: vi.fn(),
+  isLoggingEnabled: vi.fn().mockReturnValue(false),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
 // Mock monocart-coverage-reports CDPClient
 vi.mock('monocart-coverage-reports', () => ({
   CDPClient: vi.fn(),
@@ -67,19 +76,17 @@ describe('ServerCoverageCollector', () => {
 
   describe('connect', () => {
     it('should return false when CDP connection fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockRejectedValue(new Error('Connection failed'))
 
       const result = await collector.connect()
 
       expect(result).toBe(false)
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
     })
 
     it('should return true when CDP connection succeeds', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
@@ -88,23 +95,20 @@ describe('ServerCoverageCollector', () => {
 
       expect(result).toBe(true)
       expect(mockClient.startJSCoverage).toHaveBeenCalled()
-      consoleSpy.mockRestore()
     })
   })
 
   describe('collect', () => {
     it('should return empty array when not connected', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
 
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
     })
 
     it('should return empty array when no coverage data', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
@@ -113,11 +117,9 @@ describe('ServerCoverageCollector', () => {
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      consoleSpy.mockRestore()
     })
 
     it('should filter server coverage entries', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const mockCoverage: V8CoverageEntry[] = [
         { url: 'file:///project/.next/server/app/page.js', functions: [] },
         { url: 'file:///project/.next/server/chunks/123.js', functions: [] },
@@ -135,11 +137,10 @@ describe('ServerCoverageCollector', () => {
 
       // Should filter out node_modules and non-file URLs
       expect(result.length).toBeLessThanOrEqual(2)
-      consoleSpy.mockRestore()
     })
 
     it('should handle collection errors gracefully', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { log } = await import('../../logger.js')
       const mockClient = createMockCoverageClient({
         stopJSCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
       })
@@ -150,8 +151,7 @@ describe('ServerCoverageCollector', () => {
       const result = await collector.collect()
 
       expect(result).toEqual([])
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to collect'))
-      consoleSpy.mockRestore()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to collect'))
     })
   })
 
@@ -163,7 +163,6 @@ describe('ServerCoverageCollector', () => {
     })
 
     it('should save coverage to file', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const coverage: V8CoverageEntry[] = [
         { url: 'file:///project/.next/server/app/page.js', functions: [] },
       ]
@@ -174,11 +173,9 @@ describe('ServerCoverageCollector', () => {
       const files = await fs.readdir(testCacheDir)
       expect(files.length).toBe(1)
       expect(files[0]).toMatch(/^server-\d+\.json$/)
-      consoleSpy.mockRestore()
     })
 
     it('should save coverage with correct content', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const coverage: V8CoverageEntry[] = [
         {
           url: 'file:///project/.next/server/app/page.js',
@@ -200,7 +197,6 @@ describe('ServerCoverageCollector', () => {
 
       expect(data.result).toHaveLength(1)
       expect(data.result[0].url).toBe('file:///project/.next/server/app/page.js')
-      consoleSpy.mockRestore()
     })
   })
 })

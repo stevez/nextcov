@@ -16,6 +16,7 @@ import { decode, encode, type SourceMapMappings } from '@jridgewell/sourcemap-co
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
 import type { V8Coverage, V8ScriptCoverage, SourceMapData, SourceFilter } from './types.js'
 import { SourceMapLoader } from './sourcemap-loader.js'
+import { log } from './logger.js'
 
 export class CoverageConverter {
   private sourceMapLoader: SourceMapLoader
@@ -74,15 +75,15 @@ export class CoverageConverter {
       }
     }
 
-    console.log(`  Debug: Converted ${successCount} entries, failed ${failCount}`)
+    log(`  Debug: Converted ${successCount} entries, failed ${failCount}`)
     if (failCount > 0 && Object.keys(failReasons).length > 0) {
-      console.log(`  Debug: Fail reasons:`, Object.entries(failReasons).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(', '))
+      log(`  Debug: Fail reasons:`, Object.entries(failReasons).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(', '))
     }
 
     // Debug: Show files in coverage map before normalization
     const filesBeforeNorm = coverageMap.files()
-    console.log(`  Debug: Files before normalization (${filesBeforeNorm.length}):`)
-    filesBeforeNorm.slice(0, 10).forEach(f => console.log(`    ${f}`))
+    log(`  Debug: Files before normalization (${filesBeforeNorm.length}):`)
+    filesBeforeNorm.slice(0, 10).forEach(f => log(`    ${f}`))
 
     // Normalize file paths to Windows format for merging with Vitest coverage
     // Note: We skip transformWithSourceMaps because ast-v8-to-istanbul already
@@ -91,8 +92,8 @@ export class CoverageConverter {
 
     // Debug: Show files after normalization
     const filesAfterNorm = normalizedMap.files()
-    console.log(`  Debug: Files after normalization (${filesAfterNorm.length}):`)
-    filesAfterNorm.slice(0, 10).forEach(f => console.log(`    ${f}`))
+    log(`  Debug: Files after normalization (${filesAfterNorm.length}):`)
+    filesAfterNorm.slice(0, 10).forEach(f => log(`    ${f}`))
 
     // Note: We don't apply the sourceFilter here because extractSourcePath
     // already filters to only keep files with src/ in their path.
@@ -480,7 +481,7 @@ export class CoverageConverter {
 
       if (!normalizedPath) {
         // Debug: Log why files are being skipped
-        console.log(`  Debug: Skipping file (no src/ path): ${filePath}`)
+        log(`  Debug: Skipping file (no src/ path): ${filePath}`)
         continue
       }
 
@@ -568,7 +569,7 @@ export class CoverageConverter {
       if (!sourceFile) {
         // Debug: No code and couldn't load source
         if (process.env.DEBUG_COVERAGE) {
-          console.log(`  [DEBUG] No source for: ${debugUrl}`)
+          log(`  [DEBUG] No source for: ${debugUrl}`)
         }
         return null
       }
@@ -621,7 +622,7 @@ export class CoverageConverter {
     } catch {
       // Debug: AST parse failed
       if (process.env.DEBUG_COVERAGE) {
-        console.log(`  [DEBUG] AST parse failed for: ${debugUrl}`)
+        log(`  [DEBUG] AST parse failed for: ${debugUrl}`)
       }
       return null
     }
@@ -635,9 +636,9 @@ export class CoverageConverter {
     if (sourceMap && !sanitizedSourceMap) {
       // Debug: Source map was sanitized away
       if (process.env.DEBUG_COVERAGE) {
-        console.log(`  [DEBUG] Sourcemap rejected for: ${debugUrl}`)
-        console.log(`    sources: ${sourceMap.sources?.slice(0, 3).join(', ')}${sourceMap.sources && sourceMap.sources.length > 3 ? '...' : ''}`)
-        console.log(`    sourcesContent: ${sourceMap.sourcesContent ? `${sourceMap.sourcesContent.length} entries, first has content: ${!!sourceMap.sourcesContent[0]}` : 'none'}`)
+        log(`  [DEBUG] Sourcemap rejected for: ${debugUrl}`)
+        log(`    sources: ${sourceMap.sources?.slice(0, 3).join(', ')}${sourceMap.sources && sourceMap.sources.length > 3 ? '...' : ''}`)
+        log(`    sourcesContent: ${sourceMap.sourcesContent ? `${sourceMap.sourcesContent.length} entries, first has content: ${!!sourceMap.sourcesContent[0]}` : 'none'}`)
       }
       return null
     }

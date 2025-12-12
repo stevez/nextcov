@@ -90,6 +90,12 @@ export interface NextcovConfig {
    * Set to true to auto-detect, or provide config object for manual control.
    */
   devMode?: boolean | DevModeOptions
+
+  /**
+   * Enable logging (default: false)
+   * When true, shows detailed progress logs during coverage collection.
+   */
+  log?: boolean
 }
 
 /**
@@ -129,6 +135,7 @@ export interface ResolvedNextcovConfig {
   exclude: string[]
   reporters: ReporterType[]
   devMode: ResolvedDevModeOptions
+  log: boolean
 }
 
 const DEFAULT_OUTPUT_DIR = 'coverage/e2e'
@@ -164,6 +171,7 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
   exclude: DEFAULT_EXCLUDE_PATTERNS,
   reporters: DEFAULT_REPORTERS,
   devMode: DEFAULT_DEV_MODE_OPTIONS,
+  log: false,
 }
 
 /**
@@ -219,6 +227,7 @@ export function resolveNextcovConfig(config?: NextcovConfig): ResolvedNextcovCon
     exclude: config?.exclude ?? DEFAULT_NEXTCOV_CONFIG.exclude,
     reporters: config?.reporters ?? DEFAULT_NEXTCOV_CONFIG.reporters,
     devMode: resolveDevModeOptions(config?.devMode, cdpPort),
+    log: config?.log ?? DEFAULT_NEXTCOV_CONFIG.log,
   }
 }
 

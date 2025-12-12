@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CDPClient } from 'monocart-coverage-reports'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
+import { log } from '../logger.js'
 
 export interface V8CoverageEntry {
   url: string
@@ -51,18 +52,18 @@ export class ServerCoverageCollector {
    */
   async connect(): Promise<boolean> {
     try {
-      console.log(`  Connecting to CDP at port ${this.config.cdpPort}...`)
+      log(`  Connecting to CDP at port ${this.config.cdpPort}...`)
       this.cdpClient = await CDPClient({ port: this.config.cdpPort })
-      console.log('  ✓ Connected to CDP')
+      log('  ✓ Connected to CDP')
 
       // Start JS coverage collection via CDP
       if (this.cdpClient) {
         await this.cdpClient.startJSCoverage()
-        console.log('  ✓ Started JS coverage collection')
+        log('  ✓ Started JS coverage collection')
       }
       return true
     } catch (error) {
-      console.log(`  ⚠️ Failed to connect to CDP: ${error}`)
+      log(`  ⚠️ Failed to connect to CDP: ${error}`)
       return false
     }
   }
@@ -72,7 +73,7 @@ export class ServerCoverageCollector {
    */
   async collect(): Promise<V8CoverageEntry[]> {
     if (!this.cdpClient) {
-      console.log('  ⚠️ CDP not connected, no server coverage to collect')
+      log('  ⚠️ CDP not connected, no server coverage to collect')
       return []
     }
 
@@ -83,7 +84,7 @@ export class ServerCoverageCollector {
       this.cdpClient = null
 
       if (!coverageData || coverageData.length === 0) {
-        console.log('  ⚠️ No coverage data returned')
+        log('  ⚠️ No coverage data returned')
         return []
       }
 
@@ -128,10 +129,10 @@ export class ServerCoverageCollector {
         }
       }
 
-      console.log(`  ✓ Collected ${coverageList.length} server coverage entries`)
+      log(`  ✓ Collected ${coverageList.length} server coverage entries`)
       return coverageList
     } catch (error) {
-      console.log(`  ⚠️ Failed to collect server coverage: ${error}`)
+      log(`  ⚠️ Failed to collect server coverage: ${error}`)
       if (this.cdpClient) {
         await this.cdpClient.close()
         this.cdpClient = null
@@ -149,7 +150,7 @@ export class ServerCoverageCollector {
     await fs.mkdir(this.config.cacheDir, { recursive: true })
     const filePath = join(this.config.cacheDir, `server-${Date.now()}.json`)
     await fs.writeFile(filePath, JSON.stringify({ result: coverage }, null, 2))
-    console.log(`  ✓ Server coverage saved`)
+    log(`  ✓ Server coverage saved`)
   }
 }
 
