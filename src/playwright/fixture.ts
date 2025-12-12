@@ -125,6 +125,7 @@ export async function startServerCoverage(
   const productionPort = resolved.cdpPort // e.g., 9230 (main process port)
 
   log('📊 Auto-detecting server mode...')
+  log(`  Base URL: ${resolved.devMode.baseUrl}`)
   log(`  Trying dev mode (worker port ${devWorkerPort})...`)
 
   // Try dev mode (connect to worker port)
@@ -139,19 +140,16 @@ export async function startServerCoverage(
     // Make a warmup request to trigger compilation, then wait for scriptParsed events.
     const startTime = Date.now()
 
-    // Trigger webpack compilation with a warmup request
-    // This must complete before we check for scripts, as it triggers the compilation
-    log('  Triggering webpack compilation with warmup request...')
-    try {
-      await fetch('http://localhost:3000/')
-      log('  ✓ Warmup request completed')
-    } catch {
-      log('  ⚠️ Warmup request failed (server may not be ready)')
-    }
+    // Trigger webpack compilation with a non-blocking warmup request
+    // We don't need to wait for the HTTP response - we only care about scriptParsed events
+    const baseUrl = resolved.devMode.baseUrl
+    log(`  Triggering webpack compilation with warmup request to ${baseUrl}...`)
+    fetch(baseUrl).catch(() => {
+      // Ignore errors - the request just triggers compilation
+    })
 
-    // Now check if webpack scripts are available
-    // After the warmup request, scripts should already be parsed
-    const foundWebpack = await devModeCollector.waitForWebpackScripts(5000)
+    // Wait for webpack scripts to be parsed (triggered by the warmup request)
+    const foundWebpack = await devModeCollector.waitForWebpackScripts(15000)
 
     if (foundWebpack) {
       isDevMode = true

@@ -176,16 +176,23 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
 
 /**
  * Resolve dev mode options
+ * @param devMode - Dev mode config from nextcov
+ * @param cdpPort - CDP port
+ * @param playwrightBaseUrl - Optional base URL from Playwright's use.baseURL (used as fallback)
  */
 function resolveDevModeOptions(
   devMode: boolean | DevModeOptions | undefined,
-  cdpPort: number
+  cdpPort: number,
+  playwrightBaseUrl?: string
 ): ResolvedDevModeOptions {
+  // Use Playwright's baseURL as fallback, then default
+  const defaultBaseUrl = playwrightBaseUrl ?? DEFAULT_DEV_MODE_OPTIONS.baseUrl
+
   // If devMode is undefined, auto-detect
   if (devMode === undefined) {
     return {
       enabled: process.env.NODE_ENV === 'development',
-      baseUrl: DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+      baseUrl: defaultBaseUrl,
       devCdpPort: cdpPort + 1,
     }
   }
@@ -194,23 +201,25 @@ function resolveDevModeOptions(
   if (typeof devMode === 'boolean') {
     return {
       enabled: devMode,
-      baseUrl: DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+      baseUrl: defaultBaseUrl,
       devCdpPort: cdpPort + 1,
     }
   }
 
-  // If devMode is an object
+  // If devMode is an object - explicit devMode.baseUrl takes priority
   return {
     enabled: devMode.enabled ?? process.env.NODE_ENV === 'development',
-    baseUrl: devMode.baseUrl ?? DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+    baseUrl: devMode.baseUrl ?? defaultBaseUrl,
     devCdpPort: devMode.devCdpPort ?? cdpPort + 1,
   }
 }
 
 /**
  * Resolve nextcov config with defaults
+ * @param config - Nextcov config options
+ * @param playwrightBaseUrl - Optional base URL from Playwright's use.baseURL
  */
-export function resolveNextcovConfig(config?: NextcovConfig): ResolvedNextcovConfig {
+export function resolveNextcovConfig(config?: NextcovConfig, playwrightBaseUrl?: string): ResolvedNextcovConfig {
   const outputDir = config?.outputDir ?? DEFAULT_NEXTCOV_CONFIG.outputDir
   const cdpPort = config?.cdpPort ?? DEFAULT_NEXTCOV_CONFIG.cdpPort
 
@@ -226,7 +235,7 @@ export function resolveNextcovConfig(config?: NextcovConfig): ResolvedNextcovCon
     include: config?.include ?? DEFAULT_NEXTCOV_CONFIG.include,
     exclude: config?.exclude ?? DEFAULT_NEXTCOV_CONFIG.exclude,
     reporters: config?.reporters ?? DEFAULT_NEXTCOV_CONFIG.reporters,
-    devMode: resolveDevModeOptions(config?.devMode, cdpPort),
+    devMode: resolveDevModeOptions(config?.devMode, cdpPort, playwrightBaseUrl),
     log: config?.log ?? DEFAULT_NEXTCOV_CONFIG.log,
   }
 }
@@ -253,6 +262,8 @@ function findPlaywrightConfig(): string {
 /**
  * Load nextcov config from playwright.config.ts or playwright.config.js
  *
+ * Also extracts Playwright's use.baseURL to use as default for devMode.baseUrl
+ *
  * @param configPath - Path to playwright config (optional, will search in cwd for .ts then .js)
  */
 export async function loadNextcovConfig(configPath?: string): Promise<ResolvedNextcovConfig> {
@@ -268,11 +279,21 @@ export async function loadNextcovConfig(configPath?: string): Promise<ResolvedNe
     const configUrl = `file://${searchPath.replace(/\\/g, '/')}`
     const module = await import(configUrl)
 
+    // Handle both direct exports and nested default exports
+    // module.default might be the config, or it might have a nested 'default' property
+    const defaultExport = module.default as Record<string, unknown> | undefined
+    const actualConfig = (defaultExport?.default ?? defaultExport) as Record<string, unknown> | undefined
+
     const nextcovConfig: NextcovConfig | undefined =
       module.nextcov ||
-      (module.default as { nextcov?: NextcovConfig })?.nextcov
+      (actualConfig?.nextcov as NextcovConfig | undefined)
 
-    cachedConfig = resolveNextcovConfig(nextcovConfig)
+    // Extract Playwright's use.baseURL if available
+    // This is used as the default for devMode.baseUrl
+    const useConfig = actualConfig?.use as { baseURL?: string } | undefined
+    const playwrightBaseUrl = useConfig?.baseURL
+
+    cachedConfig = resolveNextcovConfig(nextcovConfig, playwrightBaseUrl)
     cachedConfigPath = searchPath
     return cachedConfig
   } catch {
