@@ -46,22 +46,22 @@ Examples:
   npx nextcov merge coverage/unit coverage/integration --reporters html,lcov
 `
 
-async function main() {
+async function main(): Promise<number> {
   const args = process.argv.slice(2)
 
   if (args.length === 0 || (args[0] === '--help' || args[0] === '-h')) {
     console.log(HELP)
-    process.exit(0)
+    return 0
   }
 
   const command = args[0]
 
   if (command === 'merge') {
-    await runMerge(args.slice(1))
+    return await runMerge(args.slice(1))
   } else {
     console.error(`Unknown command: ${command}`)
     console.log(HELP)
-    process.exit(1)
+    return 1
   }
 }
 
@@ -202,29 +202,31 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
   }
 }
 
-async function runMerge(args: string[]) {
+async function runMerge(args: string[]): Promise<number> {
   const result = parseMergeArgs(args)
 
   if (result.showHelp) {
     console.log(MERGE_HELP)
     if (result.error) {
       console.error(result.error)
-      process.exit(1)
+      return 1
     }
-    process.exit(0)
+    return 0
   }
 
   if (result.error) {
     console.error(result.error)
-    process.exit(1)
+    return 1
   }
 
   const mergeResult = await executeMerge(result.options!)
 
   if (!mergeResult.success) {
     console.error(`❌ ${mergeResult.error}`)
-    process.exit(1)
+    return 1
   }
+
+  return 0
 }
 
 // Only run main() when executed directly, not when imported for testing
@@ -239,23 +241,18 @@ const normalizedExecuted = executedFile?.replace(/\\/g, '/')
 const isMainModule = normalizedCurrent === normalizedExecuted
   || normalizedExecuted?.endsWith('/cli.js')
   || normalizedExecuted?.endsWith('/cli.ts')
+  || normalizedExecuted?.endsWith('/nextcov')  // npm bin symlink name
 
-// Ensure stdout is flushed before exiting (fixes CI output buffering)
-function flushAndExit(code: number): void {
-  const done = () => process.exit(code)
-  // If stdout is already drained or not TTY, exit immediately
-  if (!process.stdout.write('')) {
-    process.stdout.once('drain', done)
-  } else {
-    done()
-  }
-}
-
+// Use process.exitCode instead of process.exit() to allow Node to exit naturally
+// after all I/O operations complete. This fixes stdout buffering issues in CI
+// environments where npx pipes output through a child process.
 if (isMainModule) {
   main()
-    .then(() => flushAndExit(0))
+    .then((code) => {
+      process.exitCode = code
+    })
     .catch((error) => {
       console.error('Fatal error:', error)
-      flushAndExit(1)
+      process.exitCode = 1
     })
 }
