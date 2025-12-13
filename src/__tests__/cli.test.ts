@@ -12,10 +12,14 @@ import {
   type MergeResult,
 } from '../cli.js'
 
-// Mock fs module
-vi.mock('fs', () => ({
-  existsSync: vi.fn(),
-}))
+// Mock fs module but keep readFileSync for integration tests
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+  }
+})
 
 // Create mock functions that can be controlled per test
 const mockGenerateReports = vi.fn().mockResolvedValue(undefined)
@@ -371,6 +375,154 @@ describe('CLI', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toBe('Report generation failed')
+    })
+  })
+
+  describe('CLI integration (subprocess)', () => {
+    it('should run --help and produce output', async () => {
+      const { execSync } = await import('child_process')
+      const { fileURLToPath } = await import('url')
+      const { dirname, join } = await import('path')
+
+      const currentFile = fileURLToPath(import.meta.url)
+      const cliPath = join(dirname(currentFile), '..', 'cli.ts')
+
+      // Run CLI via tsx to handle TypeScript
+      const output = execSync(`npx tsx "${cliPath}" --help`, {
+        encoding: 'utf-8',
+        cwd: dirname(dirname(currentFile))
+      })
+
+      expect(output).toContain('nextcov')
+      expect(output).toContain('Usage:')
+      expect(output).toContain('merge')
+    })
+
+    it('should run merge --help and produce output', async () => {
+      const { execSync } = await import('child_process')
+      const { fileURLToPath } = await import('url')
+      const { dirname, join } = await import('path')
+
+      const currentFile = fileURLToPath(import.meta.url)
+      const cliPath = join(dirname(currentFile), '..', 'cli.ts')
+
+      const output = execSync(`npx tsx "${cliPath}" merge --help`, {
+        encoding: 'utf-8',
+        cwd: dirname(dirname(currentFile))
+      })
+
+      expect(output).toContain('npx nextcov merge')
+      expect(output).toContain('--output')
+      expect(output).toContain('--reporters')
+    })
+
+    it('should merge actual coverage files and produce output', async () => {
+      const { execSync } = await import('child_process')
+      const { fileURLToPath } = await import('url')
+      const { dirname, join, resolve } = await import('path')
+      const { readFileSync, rmSync, existsSync: realExistsSync } = await import('fs')
+
+      const currentFile = fileURLToPath(import.meta.url)
+      const projectRoot = resolve(dirname(currentFile), '..', '..')
+      const cliPath = join(projectRoot, 'src', 'cli.ts')
+
+      // Use coverage files from test-fixtures (separate from vitest's coverage output)
+      const unitDir = join(projectRoot, 'test-fixtures', 'sample-coverage', 'unit')
+      const integrationDir = join(projectRoot, 'test-fixtures', 'sample-coverage', 'integration')
+      const outputDir = join(projectRoot, 'test-fixtures', 'sample-coverage', 'test-merged')
+
+      // Clean up previous test output to ensure fresh merge
+      if (realExistsSync(outputDir)) {
+        rmSync(outputDir, { recursive: true })
+      }
+
+      const output = execSync(
+        `npx tsx "${cliPath}" merge "${unitDir}" "${integrationDir}" -o "${outputDir}" --reporters json`,
+        {
+          encoding: 'utf-8',
+          cwd: projectRoot
+        }
+      )
+
+      expect(output).toContain('nextcov merge')
+      expect(output).toContain('Inputs:')
+      expect(output).toContain('Loading:')
+      expect(output).toContain('Merged coverage report generated')
+
+      // Verify merged output contains expected files
+      const mergedFile = join(outputDir, 'coverage-final.json')
+      const merged = JSON.parse(readFileSync(mergedFile, 'utf-8'))
+
+      // Check that all 8 files from todo-app are present
+      expect(merged['src/api/api.ts']).toBeDefined()
+      expect(merged['src/app/layout.tsx']).toBeDefined()
+      expect(merged['src/app/page.tsx']).toBeDefined()
+      expect(merged['src/app/components/AddTask.tsx']).toBeDefined()
+      expect(merged['src/app/components/Icons.tsx']).toBeDefined()
+      expect(merged['src/app/components/Modal.tsx']).toBeDefined()
+      expect(merged['src/app/components/Task.tsx']).toBeDefined()
+      expect(merged['src/app/components/TodoList.tsx']).toBeDefined()
+
+      // Count totals from merged coverage
+      let totalStatements = 0
+      let coveredStatements = 0
+      let totalBranches = 0
+      let coveredBranches = 0
+      let totalFunctions = 0
+      let coveredFunctions = 0
+      let totalLines = 0
+      let coveredLines = 0
+
+      for (const [, fileCoverage] of Object.entries(merged)) {
+        const fc = fileCoverage as {
+          s: Record<string, number>
+          b: Record<string, number[]>
+          f: Record<string, number>
+          statementMap: Record<string, { start: { line: number } }>
+        }
+        // Count statements
+        for (const [, count] of Object.entries(fc.s)) {
+          totalStatements++
+          if (count > 0) coveredStatements++
+        }
+        // Count branches
+        for (const [, counts] of Object.entries(fc.b)) {
+          for (const count of counts) {
+            totalBranches++
+            if (count > 0) coveredBranches++
+          }
+        }
+        // Count functions
+        for (const [, count] of Object.entries(fc.f)) {
+          totalFunctions++
+          if (count > 0) coveredFunctions++
+        }
+        // Count lines (unique lines from statementMap)
+        const lineHits: Record<number, number> = {}
+        for (const [stmtId, stmtInfo] of Object.entries(fc.statementMap)) {
+          const line = stmtInfo.start.line
+          const hits = fc.s[stmtId] || 0
+          // Track max hits per line (multiple statements can be on same line)
+          if (lineHits[line] === undefined || hits > lineHits[line]) {
+            lineHits[line] = hits
+          }
+        }
+        for (const [, hits] of Object.entries(lineHits)) {
+          totalLines++
+          if (hits > 0) coveredLines++
+        }
+      }
+
+      // Verify 100% coverage with expected totals:
+      // Statements: 91/91, Branches: 17/17, Functions: 38/38, Lines: 83/83
+      expect(coveredStatements).toBe(totalStatements)
+      expect(coveredBranches).toBe(totalBranches)
+      expect(coveredFunctions).toBe(totalFunctions)
+      expect(coveredLines).toBe(totalLines)
+      expect(totalStatements).toBe(91)
+      expect(totalBranches).toBe(17)
+      expect(totalFunctions).toBe(38)
+      expect(totalLines).toBe(83)
     })
   })
 })
