@@ -240,9 +240,22 @@ const isMainModule = normalizedCurrent === normalizedExecuted
   || normalizedExecuted?.endsWith('/cli.js')
   || normalizedExecuted?.endsWith('/cli.ts')
 
+// Ensure stdout is flushed before exiting (fixes CI output buffering)
+function flushAndExit(code: number): void {
+  const done = () => process.exit(code)
+  // If stdout is already drained or not TTY, exit immediately
+  if (!process.stdout.write('')) {
+    process.stdout.once('drain', done)
+  } else {
+    done()
+  }
+}
+
 if (isMainModule) {
-  main().catch((error) => {
-    console.error('Fatal error:', error)
-    process.exit(1)
-  })
+  main()
+    .then(() => flushAndExit(0))
+    .catch((error) => {
+      console.error('Fatal error:', error)
+      flushAndExit(1)
+    })
 }

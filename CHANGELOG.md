@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2024-12-13
+
+### Fixed
+
+- **No CLI output in CI environments** - Flush stdout before process exit to fix output buffering on Linux/GitHub Actions
+
 ## [0.5.2] - 2024-12-13
 
 ### Fixed
