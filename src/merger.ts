@@ -156,6 +156,7 @@ export class CoverageMerger {
 
   /**
    * Merge using max strategy (use max covered count for each metric)
+   * Uses "more items wins" independently per metric type (statements, functions, branches)
    */
   private mergeMax(maps: CoverageMap[]): CoverageMap {
     const allFiles = new Set<string>()
@@ -175,34 +176,142 @@ export class CoverageMerger {
       if (fileCoverages.length === 1) {
         mergedData[file] = fileCoverages[0] as CoverageMapData[string]
       } else {
-        // Find the coverage with most items for structure preference
-        let bestStructure = fileCoverages[0]
-        if (this.config.structurePreference === 'more-items') {
-          bestStructure = fileCoverages.reduce((best, current) => {
-            const bestItems =
-              Object.keys(best.statementMap || {}).length +
-              Object.keys(best.fnMap || {}).length +
-              Object.keys(best.branchMap || {}).length
-            const currentItems =
-              Object.keys(current.statementMap || {}).length +
-              Object.keys(current.fnMap || {}).length +
-              Object.keys(current.branchMap || {}).length
-            return currentItems > bestItems ? current : best
-          })
-        }
-
-        // Merge all coverages into best structure
-        let merged = JSON.parse(JSON.stringify(bestStructure)) as FileCoverageData
-        for (const coverage of fileCoverages) {
-          if (coverage !== bestStructure) {
-            merged = this.mergeExecutionCounts(merged, coverage)
-          }
-        }
+        // Use "more items wins" independently per metric type
+        // This matches the behavior of mergeWithBase with preferBase=false
+        const merged = this.mergeFileCoveragesMax(fileCoverages)
         mergedData[file] = merged as CoverageMapData[string]
       }
     }
 
     return libCoverage.createCoverageMap(mergedData)
+  }
+
+  /**
+   * Merge multiple file coverages using max strategy with independent per-metric structure selection
+   */
+  private mergeFileCoveragesMax(coverages: FileCoverageData[]): FileCoverageData {
+    if (coverages.length === 0) {
+      throw new Error('No coverages to merge')
+    }
+    if (coverages.length === 1) {
+      return JSON.parse(JSON.stringify(coverages[0]))
+    }
+
+    type Location = { start: { line: number; column: number | null } }
+    type FnEntry = { loc: Location }
+    type BranchEntry = { loc: Location }
+
+    const locationKey = (loc: Location): string => `${loc.start.line}:${loc.start.column}`
+    const lineKey = (loc: Location): number => loc.start.line
+
+    // Find best structure for each metric independently
+    const bestStatements = coverages.reduce((best, current) =>
+      Object.keys(current.statementMap || {}).length > Object.keys(best.statementMap || {}).length ? current : best
+    )
+    const bestFunctions = coverages.reduce((best, current) =>
+      Object.keys(current.fnMap || {}).length > Object.keys(best.fnMap || {}).length ? current : best
+    )
+    const bestBranches = coverages.reduce((best, current) =>
+      Object.keys(current.branchMap || {}).length > Object.keys(best.branchMap || {}).length ? current : best
+    )
+
+    // Build lookup maps for all coverages
+    const buildLookups = (data: FileCoverageData) => {
+      const stmts = new Map<string, number>()
+      const stmtsByLine = new Map<number, number>()
+      for (const [key, loc] of Object.entries(data.statementMap || {}) as [string, Location][]) {
+        const count = data.s[key] || 0
+        if (count > 0) {
+          stmts.set(locationKey(loc), count)
+          const line = lineKey(loc)
+          stmtsByLine.set(line, Math.max(stmtsByLine.get(line) || 0, count))
+        }
+      }
+
+      const fns = new Map<string, number>()
+      const fnsByLine = new Map<number, number>()
+      for (const [key, fn] of Object.entries(data.fnMap || {}) as [string, FnEntry][]) {
+        const count = data.f[key] || 0
+        if (count > 0) {
+          fns.set(locationKey(fn.loc), count)
+          const line = lineKey(fn.loc)
+          fnsByLine.set(line, Math.max(fnsByLine.get(line) || 0, count))
+        }
+      }
+
+      const branches = new Map<string, number[]>()
+      const branchesByLine = new Map<number, number[]>()
+      for (const [key, branch] of Object.entries(data.branchMap || {}) as [string, BranchEntry][]) {
+        const counts = data.b[key] || []
+        if (counts.some((c: number) => c > 0)) {
+          branches.set(locationKey(branch.loc), counts)
+          const line = lineKey(branch.loc)
+          if (!branchesByLine.has(line)) {
+            branchesByLine.set(line, counts)
+          }
+        }
+      }
+
+      return { stmts, stmtsByLine, fns, fnsByLine, branches, branchesByLine }
+    }
+
+    const allLookups = coverages.map(buildLookups)
+
+    // Start with best structure for each metric
+    const merged: FileCoverageData = {
+      path: coverages[0].path,
+      statementMap: JSON.parse(JSON.stringify(bestStatements.statementMap)),
+      s: JSON.parse(JSON.stringify(bestStatements.s)),
+      fnMap: JSON.parse(JSON.stringify(bestFunctions.fnMap)),
+      f: JSON.parse(JSON.stringify(bestFunctions.f)),
+      branchMap: JSON.parse(JSON.stringify(bestBranches.branchMap)),
+      b: JSON.parse(JSON.stringify(bestBranches.b)),
+    }
+
+    // Merge statement counts from all sources
+    for (const [key, loc] of Object.entries(merged.statementMap) as [string, Location][]) {
+      const locKey = locationKey(loc)
+      const line = lineKey(loc)
+      let maxCount = merged.s[key] || 0
+      for (const lookup of allLookups) {
+        const count = lookup.stmts.get(locKey) ?? lookup.stmtsByLine.get(line)
+        if (count !== undefined && count > maxCount) {
+          maxCount = count
+        }
+      }
+      merged.s[key] = maxCount
+    }
+
+    // Merge function counts from all sources
+    for (const [key, fn] of Object.entries(merged.fnMap) as [string, FnEntry][]) {
+      const locKey = locationKey(fn.loc)
+      const line = lineKey(fn.loc)
+      let maxCount = merged.f[key] || 0
+      for (const lookup of allLookups) {
+        const count = lookup.fns.get(locKey) ?? lookup.fnsByLine.get(line)
+        if (count !== undefined && count > maxCount) {
+          maxCount = count
+        }
+      }
+      merged.f[key] = maxCount
+    }
+
+    // Merge branch counts from all sources
+    for (const [key, branch] of Object.entries(merged.branchMap) as [string, BranchEntry][]) {
+      const locKey = locationKey(branch.loc)
+      const line = lineKey(branch.loc)
+      const baseCounts = merged.b[key] || []
+      for (const lookup of allLookups) {
+        const counts = lookup.branches.get(locKey) ?? lookup.branchesByLine.get(line)
+        if (counts !== undefined) {
+          merged.b[key] = baseCounts.map((c: number, i: number) =>
+            Math.max(c, counts[i] || 0)
+          )
+        }
+      }
+    }
+
+    return merged
   }
 
   /**

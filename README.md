@@ -118,7 +118,6 @@ See [restaurant-reviews-platform](https://github.com/stevez/restaurant-reviews-p
 - [e2e/fixtures.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/fixtures.ts) - Coverage collection fixture
 - [e2e/global-setup.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-setup.ts) - Start server coverage (auto-detects dev/production)
 - [e2e/global-teardown.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/e2e/global-teardown.ts) - Coverage finalization
-- [scripts/merge-coverage.ts](https://github.com/stevez/restaurant-reviews-platform/blob/main/scripts/merge-coverage.ts) - Merge unit + E2E coverage
 - [next.config.js](https://github.com/stevez/restaurant-reviews-platform/blob/main/next.config.js) - Next.js source map configuration
 
 ## Quick Start
@@ -178,6 +177,7 @@ export const nextcov: NextcovConfig = {
     'src/**/*.spec.{ts,tsx}',
   ],
   reporters: ['html', 'lcov', 'json', 'text-summary'],
+  log: true,                   // Enable verbose logging (default: false)
 }
 
 const config: PlaywrightConfigWithNextcov = {
@@ -365,9 +365,55 @@ export default defineConfig({
 })
 ```
 
-### Create a Merge Script
+### Using the CLI (Recommended)
 
-Create `scripts/merge-coverage.ts`:
+The simplest way to merge coverage is using the `nextcov` CLI:
+
+```bash
+# Merge unit and E2E coverage
+npx nextcov merge coverage/unit coverage/e2e -o coverage/merged
+
+# Merge multiple coverage directories
+npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/all
+
+# Customize reporters
+npx nextcov merge coverage/unit coverage/e2e --reporters html,lcov,json
+```
+
+Add to your `package.json`:
+
+```json
+{
+  "scripts": {
+    "coverage:merge": "npx nextcov merge coverage/unit coverage/integration -o coverage/merged"
+  }
+}
+```
+
+### CLI Reference
+
+```
+Usage: npx nextcov merge <dirs...> [options]
+
+Merge multiple coverage directories into a single report.
+
+Arguments:
+  dirs                  Coverage directories to merge (must contain coverage-final.json)
+
+Options:
+  -o, --output <dir>    Output directory for merged report (default: ./coverage/merged)
+  --reporters <list>    Comma-separated reporters: html,lcov,json,text-summary (default: html,lcov,json,text-summary)
+  --help                Show this help message
+
+Examples:
+  npx nextcov merge coverage/unit coverage/integration
+  npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/merged
+  npx nextcov merge coverage/unit coverage/integration --reporters html,lcov
+```
+
+### Using the API (Advanced)
+
+For more control, you can use the programmatic API:
 
 ```typescript
 import * as path from 'path'
@@ -463,6 +509,7 @@ Finalizes coverage collection and generates reports. Call in globalTeardown.
 | `collectClient` | `boolean` | `true` | Collect client-side coverage |
 | `cleanup` | `boolean` | `true` | Clean up temp files |
 | `cdpPort` | `number` | `9230` | CDP port for triggering v8.takeCoverage() |
+| `log` | `boolean` | `false` | Enable verbose logging output |
 
 ### Main API (`nextcov`)
 
