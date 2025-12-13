@@ -379,6 +379,7 @@ describe('CLI', () => {
   })
 
   describe('CLI integration (subprocess)', () => {
+    // Increase timeout for subprocess tests - tsx can be slow on Windows CI
     it('should run --help and produce output', async () => {
       const { execSync } = await import('child_process')
       const { fileURLToPath } = await import('url')
@@ -396,7 +397,7 @@ describe('CLI', () => {
       expect(output).toContain('nextcov')
       expect(output).toContain('Usage:')
       expect(output).toContain('merge')
-    })
+    }, 30000)
 
     it('should run merge --help and produce output', async () => {
       const { execSync } = await import('child_process')
@@ -414,7 +415,7 @@ describe('CLI', () => {
       expect(output).toContain('npx nextcov merge')
       expect(output).toContain('--output')
       expect(output).toContain('--reporters')
-    })
+    }, 30000)
 
     it('should merge actual coverage files and produce output', async () => {
       const { execSync } = await import('child_process')
@@ -523,6 +524,6 @@ describe('CLI', () => {
       expect(totalBranches).toBe(17)
       expect(totalFunctions).toBe(38)
       expect(totalLines).toBe(83)
-    })
+    }, 30000)
   })
 })
