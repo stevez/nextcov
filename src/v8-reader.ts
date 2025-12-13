@@ -10,7 +10,6 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { mergeProcessCovs } from '@bcoe/v8-coverage'
 import type { V8Coverage, V8ScriptCoverage, EntryFilter } from './types.js'
-import { normalizePath } from './config.js'
 
 const DEFAULT_EXCLUDE_PATTERNS = [
   '/node_modules/',
@@ -119,27 +118,6 @@ export class V8CoverageReader {
       ...coverage,
       result: filtered,
     }
-  }
-
-  /**
-   * Filter to only include Next.js app code
-   */
-  filterNextJsAppCode(coverage: V8Coverage): V8Coverage {
-    return this.filterEntries(coverage, (entry) => {
-      // Normalize for cross-platform matching
-      const url = normalizePath(entry.url)
-
-      // Include Next.js server chunks
-      if (url.includes('.next/server/')) return true
-
-      // Include Next.js static chunks (client-side)
-      if (url.includes('_next/static/chunks/')) return true
-
-      // Include source files directly
-      if (url.includes('/src/')) return true
-
-      return false
-    })
   }
 
   /**

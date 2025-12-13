@@ -16,6 +16,7 @@ import {
   DEFAULT_REPORTERS,
   DEFAULT_INCLUDE_PATTERNS,
   COVERAGE_FINAL_JSON,
+  normalizePath,
 } from './config.js'
 import type {
   CoverageOptions,
@@ -126,7 +127,6 @@ export class CoverageProcessor {
 
     // Filter out files already in coverage
     // Normalize paths to forward slashes for cross-platform comparison
-    const normalizePath = (p: string) => p.replace(/\\/g, '/')
     const coveredFiles = new Set(coverageMap.files().map(normalizePath))
     const uncoveredFiles = sourceFiles.filter((f) => !coveredFiles.has(normalizePath(f)))
 

@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CDPClient } from 'monocart-coverage-reports'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
+import { getServerPatterns, isLocalFileUrl, isNodeModulesUrl } from '../constants.js'
 import { log } from '../logger.js'
 
 export interface V8CoverageEntry {
@@ -80,8 +81,6 @@ export class ServerCoverageCollector {
     try {
       // Stop coverage and get the data directly via CDP
       const coverageData = await this.cdpClient.stopJSCoverage()
-      await this.cdpClient.close()
-      this.cdpClient = null
 
       if (!coverageData || coverageData.length === 0) {
         log('  ⚠️ No coverage data returned')
@@ -90,28 +89,21 @@ export class ServerCoverageCollector {
 
       // Build dir patterns for filtering (normalized for cross-platform)
       const buildDir = normalizePath(this.config.buildDir)
-      const serverAppPattern = `${buildDir}/server/app`
-      const serverChunksPattern = `${buildDir}/server/chunks`
-      const serverSrcPattern = `${buildDir}/server/src`
+      const serverPatterns = getServerPatterns(buildDir)
 
       // Filter to only relevant server files
       let coverageList = (coverageData as V8CoverageEntry[]).filter((entry) => {
         const url = entry.url || ''
-        // Only file URLs
-        if (!url.startsWith('file:')) return false
-        // Exclude node_modules
-        if (url.includes('node_modules')) return false
+        // Only local file URLs (not Node builtins or remote)
+        if (!isLocalFileUrl(url)) return false
+        // Exclude third-party dependencies
+        if (isNodeModulesUrl(url)) return false
 
         // Normalize URL for pattern matching
         const normalizedUrl = normalizePath(url)
 
-        // Include server/app files (server components, API routes)
-        if (normalizedUrl.includes(serverAppPattern)) return true
-        // Include server/chunks (shared server code)
-        if (normalizedUrl.includes(serverChunksPattern)) return true
-        // Include server/src (middleware)
-        if (normalizedUrl.includes(serverSrcPattern)) return true
-        return false
+        // Include files matching any server pattern
+        return serverPatterns.some(pattern => normalizedUrl.includes(pattern))
       })
 
       // Exclude manifest files
@@ -124,8 +116,8 @@ export class ServerCoverageCollector {
           if (existsSync(filePath)) {
             entry.source = readFileSync(filePath, 'utf-8')
           }
-        } catch {
-          // Skip if file can't be read
+        } catch (error) {
+          log(`  Skipping file ${entry.url}: ${error instanceof Error ? error.message : 'unknown error'}`)
         }
       }
 
@@ -133,11 +125,17 @@ export class ServerCoverageCollector {
       return coverageList
     } catch (error) {
       log(`  ⚠️ Failed to collect server coverage: ${error}`)
+      return []
+    } finally {
+      // Always close CDP client to prevent resource leaks
       if (this.cdpClient) {
-        await this.cdpClient.close()
+        try {
+          await this.cdpClient.close()
+        } catch {
+          // Ignore close errors
+        }
         this.cdpClient = null
       }
-      return []
     }
   }
 

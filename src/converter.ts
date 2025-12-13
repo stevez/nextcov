@@ -14,9 +14,10 @@ import libCoverage from 'istanbul-lib-coverage'
 import libSourceMaps from 'istanbul-lib-source-maps'
 import { decode, encode, type SourceMapMappings } from '@jridgewell/sourcemap-codec'
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
-import type { V8Coverage, V8ScriptCoverage, SourceMapData, SourceFilter } from './types.js'
+import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, SourceMapData, SourceFilter } from './types.js'
 import { SourceMapLoader } from './sourcemap-loader.js'
 import { log } from './logger.js'
+import { normalizePath } from './config.js'
 
 export class CoverageConverter {
   private sourceMapLoader: SourceMapLoader
@@ -52,10 +53,11 @@ export class CoverageConverter {
     // Load source maps from V8 cache if available
     this.sourceMapLoader.loadFromV8Cache(coverage)
 
-    // Debug: Track conversion results
+    // Track conversion results
     let successCount = 0
     let failCount = 0
     const failReasons: Record<string, number> = {}
+    const skippedUrls = new Map<string, number>()
 
     // Process each script coverage entry
     for (const entry of coverage.result) {
@@ -66,12 +68,14 @@ export class CoverageConverter {
           successCount++
         } else {
           failCount++
-          failReasons['null result'] = (failReasons['null result'] || 0) + 1
+          failReasons['skipped (no source map or not in src/)'] = (failReasons['skipped (no source map or not in src/)'] || 0) + 1
+          skippedUrls.set(entry.url, (skippedUrls.get(entry.url) || 0) + 1)
         }
       } catch (error) {
         failCount++
         const reason = error instanceof Error ? error.message.substring(0, 50) : 'unknown'
         failReasons[reason] = (failReasons[reason] || 0) + 1
+        skippedUrls.set(entry.url, (skippedUrls.get(entry.url) || 0) + 1)
       }
     }
 
@@ -79,10 +83,14 @@ export class CoverageConverter {
     if (failCount > 0 && Object.keys(failReasons).length > 0) {
       log(`  Debug: Fail reasons:`, Object.entries(failReasons).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(', '))
     }
+    if (skippedUrls.size > 0) {
+      log(`  Debug: Skipped URLs (${skippedUrls.size} unique):`)
+      skippedUrls.forEach((count, url) => log(`    ${url} (×${count})`))
+    }
 
     // Debug: Show files in coverage map before normalization
     const filesBeforeNorm = coverageMap.files()
-    log(`  Debug: Files before normalization (${filesBeforeNorm.length}):`)
+    log(`  Debug: Files before normalization (${filesBeforeNorm.length}, showing first 10):`)
     filesBeforeNorm.slice(0, 10).forEach(f => log(`    ${f}`))
 
     // Normalize file paths to Windows format for merging with Vitest coverage
@@ -92,7 +100,7 @@ export class CoverageConverter {
 
     // Debug: Show files after normalization
     const filesAfterNorm = normalizedMap.files()
-    log(`  Debug: Files after normalization (${filesAfterNorm.length}):`)
+    log(`  Debug: Files after normalization (${filesAfterNorm.length}, showing first 10):`)
     filesAfterNorm.slice(0, 10).forEach(f => log(`    ${f}`))
 
     // Note: We don't apply the sourceFilter here because extractSourcePath
@@ -194,8 +202,8 @@ export class CoverageConverter {
               }
             }
           }
-        } catch {
-          // File might not exist or be readable, skip
+        } catch (error) {
+          log(`  Skipping file ${filePath}: ${error instanceof Error ? error.message : 'unknown error'}`)
         }
       }
 
@@ -231,8 +239,8 @@ export class CoverageConverter {
                 data.s[stmtId] = 0 // Mark as uncovered
               }
             }
-          } catch {
-            // Skip if file can't be read
+          } catch (error) {
+            log(`  Skipping file ${filePath}: ${error instanceof Error ? error.message : 'unknown error'}`)
           }
         }
 
@@ -289,8 +297,9 @@ export class CoverageConverter {
       let sourceCode: string
       try {
         sourceCode = await fs.readFile(filePath, 'utf-8')
-      } catch {
-        continue // Skip if file can't be read
+      } catch (error) {
+        log(`  Skipping file ${filePath}: ${error instanceof Error ? error.message : 'unknown error'}`)
+        continue
       }
 
       // Parse the original source to find real logical expressions
@@ -389,8 +398,9 @@ export class CoverageConverter {
       }
 
       walk(ast)
-    } catch {
+    } catch (error) {
       // If parsing fails, return empty set (don't remove any branches)
+      log(`  Failed to parse ${filePath} for branch analysis: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
 
     return lines
@@ -546,12 +556,19 @@ export class CoverageConverter {
    * In dev mode, entries may have sourceMapData and originalPath pre-attached
    * from the DevModeServerCollector. We use those when available.
    */
-  async convertEntry(entry: V8ScriptCoverage): Promise<CoverageMapData | null> {
+  async convertEntry(entry: V8ScriptCoverage | DevModeV8ScriptCoverage): Promise<CoverageMapData | null> {
     const { url, functions, source } = entry
 
+    // Validate required fields
+    if (!url || typeof url !== 'string') {
+      log(`  Skipping entry with invalid URL: ${url}`)
+      return null
+    }
+
     // Check for dev mode pre-attached source map data
-    const devModeSourceMap = (entry as any).sourceMapData as SourceMapData | undefined
-    const devModeOriginalPath = (entry as any).originalPath as string | undefined
+    const devModeEntry = entry as DevModeV8ScriptCoverage
+    const devModeSourceMap = devModeEntry.sourceMapData
+    const devModeOriginalPath = devModeEntry.originalPath
 
     // Load source code and source map
     let code = source
@@ -926,7 +943,6 @@ export class CoverageConverter {
     sourceFiles: string[]
   ): Promise<CoverageMap> {
     // Normalize paths to forward slashes for cross-platform comparison
-    const normalizePath = (p: string) => p.replace(/\\/g, '/')
     const coveredFiles = new Set(coverageMap.files().map(normalizePath))
 
     for (const filePath of sourceFiles) {

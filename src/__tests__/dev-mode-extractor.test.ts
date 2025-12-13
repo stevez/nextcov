@@ -2,10 +2,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   DevModeSourceMapExtractor,
-  isDevMode,
   createDevModeExtractor,
   type ExtractedSourceMap,
 } from '../dev-mode-extractor.js'
+import { normalizeWebpackSourcePath } from '../constants.js'
 
 describe('DevModeSourceMapExtractor', () => {
   let extractor: DevModeSourceMapExtractor
@@ -18,29 +18,29 @@ describe('DevModeSourceMapExtractor', () => {
     vi.restoreAllMocks()
   })
 
-  describe('normalizeWebpackPath', () => {
+  describe('normalizeWebpackSourcePath', () => {
     it('should remove webpack://_N_E/ prefix', () => {
-      expect(extractor.normalizeWebpackPath('webpack://_N_E/src/app/page.tsx')).toBe('src/app/page.tsx')
+      expect(normalizeWebpackSourcePath('webpack://_N_E/src/app/page.tsx')).toBe('src/app/page.tsx')
     })
 
     it('should remove leading ./', () => {
-      expect(extractor.normalizeWebpackPath('./src/lib/utils.ts')).toBe('src/lib/utils.ts')
+      expect(normalizeWebpackSourcePath('./src/lib/utils.ts')).toBe('src/lib/utils.ts')
     })
 
     it('should remove query string', () => {
-      expect(extractor.normalizeWebpackPath('src/app/page.tsx?xxxx')).toBe('src/app/page.tsx')
+      expect(normalizeWebpackSourcePath('src/app/page.tsx?xxxx')).toBe('src/app/page.tsx')
     })
 
     it('should handle URL-encoded paths', () => {
-      expect(extractor.normalizeWebpackPath('src/app/page%20name.tsx')).toBe('src/app/page name.tsx')
+      expect(normalizeWebpackSourcePath('src/app/page%20name.tsx')).toBe('src/app/page name.tsx')
     })
 
     it('should handle combined prefixes', () => {
-      expect(extractor.normalizeWebpackPath('webpack://_N_E/./src/app/page.tsx?hash')).toBe('src/app/page.tsx')
+      expect(normalizeWebpackSourcePath('webpack://_N_E/./src/app/page.tsx?hash')).toBe('src/app/page.tsx')
     })
 
     it('should return path unchanged if no prefix', () => {
-      expect(extractor.normalizeWebpackPath('src/lib/utils.ts')).toBe('src/lib/utils.ts')
+      expect(normalizeWebpackSourcePath('src/lib/utils.ts')).toBe('src/lib/utils.ts')
     })
   })
 
@@ -374,29 +374,6 @@ describe('DevModeSourceMapExtractor', () => {
       // cdpPort is used for server coverage, verify it's set
       expect(ext).toBeDefined()
     })
-  })
-})
-
-describe('isDevMode', () => {
-  const originalEnv = process.env.NODE_ENV
-
-  afterEach(() => {
-    process.env.NODE_ENV = originalEnv
-  })
-
-  it('should return true when NODE_ENV is development', () => {
-    process.env.NODE_ENV = 'development'
-    expect(isDevMode()).toBe(true)
-  })
-
-  it('should return false when NODE_ENV is production', () => {
-    process.env.NODE_ENV = 'production'
-    expect(isDevMode()).toBe(false)
-  })
-
-  it('should return false when NODE_ENV is test', () => {
-    process.env.NODE_ENV = 'test'
-    expect(isDevMode()).toBe(false)
   })
 })
 

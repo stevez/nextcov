@@ -89,7 +89,6 @@ export {
 export {
   DevModeSourceMapExtractor,
   createDevModeExtractor,
-  isDevMode,
   type ExtractedSourceMap,
   type DevModeConfig,
 } from './dev-mode-extractor.js'

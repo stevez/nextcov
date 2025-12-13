@@ -9,6 +9,7 @@ export {
   finalizeCoverage,
   startServerCoverage,
   collectClientCoverage,
+  resetCoverageState,
   type PlaywrightCoverageOptions,
 } from './fixture.js'
 

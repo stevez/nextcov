@@ -25,6 +25,35 @@ class MockV8ServerCoverageCollector {
   }
 }
 
+// Mock DevModeServerCollector - track calls and return values
+let mockDevModeCollectorConnectReturn = false
+let mockDevModeCollectorCollectReturn: any[] = []
+let mockDevModeCollectorWebpackReady = true
+const mockDevModeCollectorInstances: any[] = []
+
+class MockDevModeServerCollector {
+  connect = vi.fn().mockImplementation(() => Promise.resolve(mockDevModeCollectorConnectReturn))
+  collect = vi.fn().mockImplementation(() => Promise.resolve(mockDevModeCollectorCollectReturn))
+  waitForWebpackScripts = vi.fn().mockImplementation(() => Promise.resolve(mockDevModeCollectorWebpackReady))
+
+  constructor() {
+    mockDevModeCollectorInstances.push(this)
+  }
+}
+
+// Mock CoverageProcessor - track behavior
+let mockProcessorThrows = false
+let mockProcessorError = new Error('Processing failed')
+
+class MockCoverageProcessor {
+  processAllCoverage = vi.fn().mockImplementation(() => {
+    if (mockProcessorThrows) {
+      return Promise.reject(mockProcessorError)
+    }
+    return Promise.resolve({ summary: { lines: { pct: 85.5 } } })
+  })
+}
+
 // Mock dependencies
 vi.mock('../../collector/index.js', () => ({
   saveServerCoverage: vi.fn().mockResolvedValue(undefined),
@@ -42,21 +71,30 @@ vi.mock('../../collector/index.js', () => ({
     cleanCoverageDir = vi.fn().mockResolvedValue(undefined)
   },
   V8ServerCoverageCollector: MockV8ServerCoverageCollector,
+  DevModeServerCollector: MockDevModeServerCollector,
 }))
 
 vi.mock('../../processor.js', () => ({
-  CoverageProcessor: class MockCoverageProcessor {
-    processAllCoverage = vi.fn().mockResolvedValue({
-      summary: { lines: { pct: 85.5 } },
-    })
-  },
+  CoverageProcessor: MockCoverageProcessor,
 }))
 
 describe('playwright integration', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    // Reset V8 collector mocks
     mockV8CollectorCollectReturn = []
     mockV8CollectorInstances.length = 0
+    // Reset dev mode collector mocks
+    mockDevModeCollectorConnectReturn = false
+    mockDevModeCollectorCollectReturn = []
+    mockDevModeCollectorWebpackReady = true
+    mockDevModeCollectorInstances.length = 0
+    // Reset processor mocks
+    mockProcessorThrows = false
+    mockProcessorError = new Error('Processing failed')
+    // Reset module-level state between tests
+    const { resetCoverageState } = await import('../fixture.js')
+    resetCoverageState()
   })
 
   afterEach(() => {
@@ -302,6 +340,203 @@ describe('playwright integration', () => {
       // Client collection uses ClientCoverageCollector instance (mocked via class mock)
 
       consoleSpy.mockRestore()
+    })
+  })
+
+  describe('startServerCoverage', () => {
+    it('should return false when dev mode connection fails (production mode)', async () => {
+      const { startServerCoverage } = await import('../fixture.js')
+      const { log } = await import('../../logger.js')
+
+      // Configure dev mode collector to fail connection (production mode)
+      mockDevModeCollectorConnectReturn = false
+
+      const result = await startServerCoverage({ cdpPort: 9230 })
+
+      expect(result).toBe(false)
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Production mode'))
+    })
+
+    it('should return true when dev mode connection succeeds', async () => {
+      const { startServerCoverage } = await import('../fixture.js')
+      const { log } = await import('../../logger.js')
+
+      // Configure dev mode collector to succeed connection (dev mode)
+      mockDevModeCollectorConnectReturn = true
+      mockDevModeCollectorWebpackReady = true
+
+      // Mock fetch for warmup request
+      global.fetch = vi.fn().mockResolvedValue({ ok: true })
+
+      const result = await startServerCoverage({ cdpPort: 9230 })
+
+      expect(result).toBe(true)
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Dev mode'))
+    })
+
+    it('should handle warmup request failure gracefully', async () => {
+      const { startServerCoverage } = await import('../fixture.js')
+      const { log } = await import('../../logger.js')
+
+      // Configure dev mode collector to succeed connection
+      mockDevModeCollectorConnectReturn = true
+
+      // Mock fetch to fail
+      global.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'))
+
+      const result = await startServerCoverage({ cdpPort: 9230 })
+
+      expect(result).toBe(true)
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Warmup request failed'))
+    })
+
+    it('should log warning when webpack is not ready', async () => {
+      const { startServerCoverage } = await import('../fixture.js')
+      const { log } = await import('../../logger.js')
+
+      // Configure dev mode collector with webpack not ready
+      mockDevModeCollectorConnectReturn = true
+      mockDevModeCollectorWebpackReady = false
+
+      global.fetch = vi.fn().mockResolvedValue({ ok: true })
+
+      const result = await startServerCoverage({ cdpPort: 9230 })
+
+      expect(result).toBe(true)
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('webpack not ready'))
+    })
+  })
+
+  describe('finalizeCoverage error handling', () => {
+    it('should return null and log error when processing throws', async () => {
+      const { finalizeCoverage } = await import('../index.js')
+
+      // V8 collector returns server coverage
+      mockV8CollectorCollectReturn = [{ url: 'test', functions: [] }]
+
+      // Configure processor to throw
+      mockProcessorThrows = true
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const result = await finalizeCoverage()
+
+      expect(result).toBeNull()
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error processing coverage'),
+        expect.any(Error)
+      )
+
+      consoleSpy.mockRestore()
+    })
+  })
+
+  describe('dev mode finalizeCoverage', () => {
+    it('should use dev mode flow when devModeCollector is active', async () => {
+      const { startServerCoverage, finalizeCoverage } = await import('../fixture.js')
+      const { log } = await import('../../logger.js')
+
+      // Configure dev mode collector to succeed and return coverage
+      mockDevModeCollectorConnectReturn = true
+      mockDevModeCollectorCollectReturn = [{ url: 'webpack-internal:///./src/app/page.tsx', functions: [] }]
+
+      global.fetch = vi.fn().mockResolvedValue({ ok: true })
+
+      // Start dev mode
+      await startServerCoverage({ cdpPort: 9230 })
+
+      // Finalize should use dev mode flow
+      await finalizeCoverage()
+
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('dev mode'))
+    })
+
+    it('should handle error in dev mode and still cleanup', async () => {
+      const { startServerCoverage, finalizeCoverage } = await import('../fixture.js')
+
+      // Configure dev mode collector
+      mockDevModeCollectorConnectReturn = true
+      mockDevModeCollectorCollectReturn = [{ url: 'test', functions: [] }]
+
+      global.fetch = vi.fn().mockResolvedValue({ ok: true })
+
+      // Configure processor to throw
+      mockProcessorThrows = true
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      // Start dev mode
+      await startServerCoverage({ cdpPort: 9230 })
+
+      // Finalize should handle error gracefully
+      const result = await finalizeCoverage({ cleanup: true })
+
+      expect(result).toBeNull()
+      expect(consoleSpy).toHaveBeenCalled()
+
+      consoleSpy.mockRestore()
+    })
+  })
+
+  describe('collectClientCoverage with config', () => {
+    it('should use custom cacheDir from config', async () => {
+      const { collectClientCoverage } = await import('../index.js')
+      const { filterAppCoverage, ClientCoverageCollector } = await import('../../collector/index.js')
+
+      const mockCoverage = [{ url: 'http://localhost:3000/_next/static/chunks/app.js', functions: [] }]
+
+      const mockPage = {
+        coverage: {
+          startJSCoverage: vi.fn().mockResolvedValue(undefined),
+          stopJSCoverage: vi.fn().mockResolvedValue(mockCoverage),
+        },
+      } as unknown as Page
+
+      const mockTestInfo = {
+        workerIndex: 0,
+        testId: 'test-with-config',
+      } as TestInfo
+
+      const mockUse = vi.fn(async () => {})
+
+      vi.mocked(filterAppCoverage).mockReturnValue(mockCoverage as any)
+
+      await collectClientCoverage(mockPage, mockTestInfo, mockUse, {
+        outputDir: './custom-coverage',
+      })
+
+      // Should create ClientCoverageCollector - verify it was instantiated
+      // The mock class from vi.mock captures instantiation
+      expect(mockPage.coverage.startJSCoverage).toHaveBeenCalled()
+      expect(mockPage.coverage.stopJSCoverage).toHaveBeenCalled()
+    })
+  })
+
+  describe('resetCoverageState', () => {
+    it('should reset dev mode collector state', async () => {
+      const { startServerCoverage, finalizeCoverage, resetCoverageState } = await import('../fixture.js')
+
+      // Configure dev mode collector
+      mockDevModeCollectorConnectReturn = true
+      mockDevModeCollectorCollectReturn = [{ url: 'test', functions: [] }]
+
+      global.fetch = vi.fn().mockResolvedValue({ ok: true })
+
+      // Start dev mode
+      await startServerCoverage({ cdpPort: 9230 })
+
+      // Reset state
+      resetCoverageState()
+
+      // Configure dev mode to fail (so production mode kicks in)
+      mockDevModeCollectorConnectReturn = false
+
+      // Now finalizeCoverage should use production mode (V8ServerCoverageCollector)
+      mockV8CollectorInstances.length = 0
+      await finalizeCoverage()
+
+      // Should have created V8ServerCoverageCollector (production mode)
+      expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
     })
   })
 })
