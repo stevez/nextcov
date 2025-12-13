@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2024-12-13
+
+### Fixed
+
+- **CLI not running on Linux/CI** - Fixed `import.meta.url` path comparison for Linux environments where file URLs use `file://` format
+
 ## [0.5.0] - 2024-12-12
 
 ### Added

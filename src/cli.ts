@@ -227,7 +227,8 @@ async function runMerge(args: string[]) {
 }
 
 // Only run main() when executed directly, not when imported for testing
-const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`
+const isMainModule = import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`
+  || import.meta.url === `file://${process.argv[1]}`
   || process.argv[1]?.endsWith('cli.ts')
   || process.argv[1]?.endsWith('cli.js')
 
