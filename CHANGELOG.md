@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2024-12-13
+
+### Fixed
+
+- **Silent error suppression** - Added logging to catch blocks that were silently swallowing errors, making debugging easier
+- **CDP resource leaks** - Added try-finally patterns to ensure CDP client connections are always closed, even when errors occur
+- **Type safety** - Created `DevModeV8ScriptCoverage` interface instead of using `any` type for dev mode entries
+- **Input validation** - Added URL validation in converter to skip entries with invalid URLs gracefully
+
+### Changed
+
+- **Centralized constants** - Extracted hardcoded patterns and magic values to `constants.ts` for maintainability:
+  - Webpack URL patterns (`WEBPACK_URL_PATTERNS`, `isWebpackUrl()`, `normalizeWebpackSourcePath()`)
+  - Source map patterns (`INLINE_SOURCE_MAP_PATTERN`, `SOURCE_MAP_LOOKBACK_LIMIT`, etc.)
+  - Next.js path constants (`NEXT_STATIC_PATH`, `NEXT_STATIC_CHUNKS_PATH`, `SERVER_SUBDIRS`)
+  - Implicit coverage defaults (`DEFAULT_IMPLICIT_LOCATION`, `IMPLICIT_BRANCH_TYPE`)
+  - Helper functions (`containsSourceRoot()`, `getServerPatterns()`, `isLocalFileUrl()`, `isNodeModulesUrl()`)
+- **Reduced code duplication** - Extracted shared `buildLookups()`, `locationKey()`, and `lineKey()` utilities in merger
+- **Use config defaults** - Dev server collector now uses `DEFAULT_DEV_MODE_OPTIONS` and `DEFAULT_NEXTCOV_CONFIG` instead of hardcoded values
+- **Added `resetCoverageState()` export** - Allows resetting module-level state for test isolation
+- **Refactored `finalizeCoverage()`** - Split dev mode and production mode into separate code paths for clearer logic
+- **Progress logging** - Client coverage reader now logs how many files are being processed
+- **Improved conversion logging** - Replaced unhelpful "null result" debug messages with clearer output showing converted vs skipped entries count
+
+### Removed
+
+- **Dead code cleanup** - Removed unused `filterNextJsAppCode()` method from V8CoverageReader (was only tested, never used in production)
+
+### Tests
+
+- **Improved fixture.ts coverage** - Added 9 new tests covering `startServerCoverage()`, dev mode flow, error handling, and state reset (coverage increased from 49.6% to 95.27%)
+- **Updated dev-mode-extractor tests** - Tests now use centralized `normalizeWebpackSourcePath()` from constants.ts
+
 ## [0.5.4] - 2024-12-13
 
 ### Fixed

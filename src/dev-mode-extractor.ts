@@ -10,6 +10,18 @@
  */
 
 import type { SourceMapData } from './types.js'
+import {
+  SOURCE_MAP_LOOKBACK_LIMIT,
+  INLINE_SOURCE_MAP_PATTERN,
+  INLINE_SOURCE_MAP_PATTERN_GLOBAL,
+  NEXTJS_CHUNK_PATTERN,
+  COMMON_DEV_CHUNKS,
+  WEBPACK_INTERNAL_MODULE_PATTERN,
+  isWebpackUrl,
+  containsSourceRoot,
+  normalizeWebpackSourcePath,
+} from './constants.js'
+import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from './config.js'
 
 export interface ExtractedSourceMap {
   /** Webpack module ID (e.g., "(app-pages-browser)/./src/components/Button.tsx") */
@@ -32,9 +44,9 @@ export interface DevModeConfig {
 }
 
 const DEFAULT_CONFIG: Required<DevModeConfig> = {
-  baseUrl: 'http://localhost:3000',
-  cdpPort: 9231, // Worker process port (9230 + 1)
-  sourceRoot: 'src',
+  baseUrl: DEFAULT_DEV_MODE_OPTIONS.baseUrl,
+  cdpPort: DEFAULT_DEV_MODE_OPTIONS.devCdpPort,
+  sourceRoot: DEFAULT_NEXTCOV_CONFIG.sourceRoot.replace(/^\.\//, ''),
 }
 
 /**
@@ -60,9 +72,8 @@ export class DevModeSourceMapExtractor {
   extractFromChunkContent(chunkContent: string): ExtractedSourceMap[] {
     const results: ExtractedSourceMap[] = []
 
-    // Pattern to find all inline source map DataURLs
-    const sourceMapPattern =
-      /sourceMappingURL=data:application\/json;charset=utf-8;base64,([A-Za-z0-9+/=]+)/g
+    // Create a new regex instance for each call (global regex is stateful)
+    const sourceMapPattern = new RegExp(INLINE_SOURCE_MAP_PATTERN_GLOBAL.source, 'g')
 
     let match
     while ((match = sourceMapPattern.exec(chunkContent)) !== null) {
@@ -105,7 +116,7 @@ export class DevModeSourceMapExtractor {
    */
   private extractCodeBeforeSourceMap(content: string, sourceMapIndex: number): string {
     // Look back from the sourceMapIndex to find the eval content start
-    const lookbackLength = Math.min(sourceMapIndex, 10000)
+    const lookbackLength = Math.min(sourceMapIndex, SOURCE_MAP_LOOKBACK_LIMIT)
     const section = content.substring(sourceMapIndex - lookbackLength, sourceMapIndex)
 
     // Find the start of the eval content
@@ -129,55 +140,30 @@ export class DevModeSourceMapExtractor {
     }
 
     // Get the first source (usually the original file)
-    let source = sourceMap.sources[0]
+    const source = sourceMap.sources[0]
 
     // Normalize webpack:// URLs to relative paths
-    source = this.normalizeWebpackPath(source)
-
-    return source
-  }
-
-  /**
-   * Normalize webpack source URL to relative path
-   */
-  normalizeWebpackPath(source: string): string {
-    // Remove webpack://_N_E/ prefix
-    let path = source.replace(/^webpack:\/\/[^/]+\//, '')
-
-    // Remove query string (e.g., ?xxxx)
-    path = path.replace(/\?[^?]*$/, '')
-
-    // Remove leading ./
-    path = path.replace(/^\.\//, '')
-
-    // Handle Windows URL-encoded paths
-    path = decodeURIComponent(path)
-
-    return path
+    return normalizeWebpackSourcePath(source)
   }
 
   /**
    * Filter to only include project source files (not node_modules)
    */
   filterProjectSourceMaps(sourceMaps: ExtractedSourceMap[]): ExtractedSourceMap[] {
+    const sourceRoot = this.config.sourceRoot
     return sourceMaps.filter((sm) => {
-      const moduleId = sm.moduleId
-      const originalPath = sm.originalPath
+      const { moduleId, originalPath } = sm
 
-      // Check for project src directory
-      if (
-        moduleId.includes(`/${this.config.sourceRoot}/`) ||
-        moduleId.includes(`/./${this.config.sourceRoot}/`) ||
-        originalPath.startsWith(this.config.sourceRoot + '/')
-      ) {
-        // Exclude node_modules
-        if (moduleId.includes('node_modules') || originalPath.includes('node_modules')) {
-          return false
-        }
-        return true
+      // Exclude node_modules first
+      if (moduleId.includes('node_modules') || originalPath.includes('node_modules')) {
+        return false
       }
 
-      return false
+      // Check for project src directory
+      return (
+        containsSourceRoot(moduleId, sourceRoot) ||
+        originalPath.startsWith(`${sourceRoot}/`)
+      )
     })
   }
 
@@ -210,7 +196,7 @@ export class DevModeSourceMapExtractor {
       const pageHtml = await pageResponse.text()
 
       // Find all chunk script URLs
-      const chunkPattern = /_next\/static\/chunks\/[^"']+\.js/g
+      const chunkPattern = new RegExp(NEXTJS_CHUNK_PATTERN.source, 'g')
       const chunks = new Set<string>()
 
       let match
@@ -219,14 +205,7 @@ export class DevModeSourceMapExtractor {
       }
 
       // Also try common dev mode chunk paths
-      const commonChunks = [
-        '_next/static/chunks/app/page.js',
-        '_next/static/chunks/app/layout.js',
-        '_next/static/chunks/main-app.js',
-        '_next/static/chunks/webpack.js',
-      ]
-
-      for (const chunk of commonChunks) {
+      for (const chunk of COMMON_DEV_CHUNKS) {
         chunks.add(chunk)
       }
 
@@ -254,9 +233,7 @@ export class DevModeSourceMapExtractor {
     scriptSource: string
   ): ExtractedSourceMap | null {
     // Check if the script has an inline source map
-    const match = scriptSource.match(
-      /sourceMappingURL=data:application\/json[^,]*,([A-Za-z0-9+/=]+)/
-    )
+    const match = scriptSource.match(INLINE_SOURCE_MAP_PATTERN)
 
     if (!match) {
       return null
@@ -274,7 +251,7 @@ export class DevModeSourceMapExtractor {
       // Extract module ID from webpack-internal URL
       // e.g., webpack-internal:///(rsc)/./src/app/layout.tsx
       let moduleId = scriptUrl
-      const webpackMatch = scriptUrl.match(/webpack-internal:\/\/\/\([^)]+\)\/(.+)/)
+      const webpackMatch = scriptUrl.match(WEBPACK_INTERNAL_MODULE_PATTERN)
       if (webpackMatch) {
         moduleId = webpackMatch[1]
       }
@@ -301,12 +278,9 @@ export class DevModeSourceMapExtractor {
    */
   isProjectScript(scriptUrl: string): boolean {
     // Webpack internal scripts with src/ path
-    if (scriptUrl.includes('webpack-internal')) {
+    if (isWebpackUrl(scriptUrl)) {
       const normalizedUrl = decodeURIComponent(scriptUrl)
-      return (
-        normalizedUrl.includes(`/${this.config.sourceRoot}/`) ||
-        normalizedUrl.includes(`/./${this.config.sourceRoot}/`)
-      )
+      return containsSourceRoot(normalizedUrl, this.config.sourceRoot)
     }
     return false
   }
@@ -334,27 +308,12 @@ export class DevModeSourceMapExtractor {
       version: extracted.sourceMap.version,
       file: extracted.originalPath,
       mappings: extracted.sourceMap.mappings,
-      sources: extracted.sourceMap.sources.map((s) => this.normalizeWebpackPath(s)),
+      sources: extracted.sourceMap.sources.map((s) => normalizeWebpackSourcePath(s)),
       sourcesContent: extracted.sourceMap.sourcesContent || [],
       names: extracted.sourceMap.names || [],
       sourceRoot: extracted.sourceMap.sourceRoot,
     }
   }
-}
-
-/**
- * Check if running in dev mode
- * Detects based on environment and build artifacts
- */
-export function isDevMode(): boolean {
-  // Check NODE_ENV
-  if (process.env.NODE_ENV === 'development') {
-    return true
-  }
-
-  // Check for dev-specific indicators
-  // In dev mode, Next.js runs with hot reload and doesn't produce .map files
-  return false
 }
 
 /**

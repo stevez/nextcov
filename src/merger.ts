@@ -14,12 +14,84 @@ import type { CoverageMap, CoverageMapData, FileCoverageData } from 'istanbul-li
 import type { MergerConfig, MergeOptions, MergeResult, CoverageSummary, CoverageMetric, ReporterType } from './types.js'
 import { DEFAULT_REPORTERS, DEFAULT_WATERMARKS } from './config.js'
 import { log } from './logger.js'
+import { DEFAULT_IMPLICIT_LOCATION, IMPLICIT_BRANCH_TYPE } from './constants.js'
 
 // Default configuration
 const DEFAULT_MERGER_CONFIG: MergerConfig = {
   strategy: 'max',
   structurePreference: 'more-items',
   applyFixes: true,
+}
+
+// Types for coverage lookup operations
+type Location = { start: { line: number; column: number | null } }
+type FnEntry = { loc: Location }
+type BranchEntry = { loc: Location }
+
+interface CoverageLookups {
+  stmts: Map<string, number>
+  stmtsByLine: Map<number, number>
+  fns: Map<string, number>
+  fnsByLine: Map<number, number>
+  branches: Map<string, number[]>
+  branchesByLine: Map<number, number[]>
+}
+
+/**
+ * Create a unique key for a location (exact match)
+ */
+function locationKey(loc: Location): string {
+  return `${loc.start.line}:${loc.start.column}`
+}
+
+/**
+ * Get the line number from a location (for line-based fallback matching)
+ */
+function lineKey(loc: Location): number {
+  return loc.start.line
+}
+
+/**
+ * Build lookup maps from file coverage data for efficient merging.
+ * Creates maps keyed by exact location and by line number for fallback matching.
+ */
+function buildLookups(data: FileCoverageData): CoverageLookups {
+  const stmts = new Map<string, number>()
+  const stmtsByLine = new Map<number, number>()
+  for (const [key, loc] of Object.entries(data.statementMap || {}) as [string, Location][]) {
+    const count = data.s[key] || 0
+    if (count > 0) {
+      stmts.set(locationKey(loc), count)
+      const line = lineKey(loc)
+      stmtsByLine.set(line, Math.max(stmtsByLine.get(line) || 0, count))
+    }
+  }
+
+  const fns = new Map<string, number>()
+  const fnsByLine = new Map<number, number>()
+  for (const [key, fn] of Object.entries(data.fnMap || {}) as [string, FnEntry][]) {
+    const count = data.f[key] || 0
+    if (count > 0) {
+      fns.set(locationKey(fn.loc), count)
+      const line = lineKey(fn.loc)
+      fnsByLine.set(line, Math.max(fnsByLine.get(line) || 0, count))
+    }
+  }
+
+  const branches = new Map<string, number[]>()
+  const branchesByLine = new Map<number, number[]>()
+  for (const [key, branch] of Object.entries(data.branchMap || {}) as [string, BranchEntry][]) {
+    const counts = data.b[key] || []
+    if (counts.some((c: number) => c > 0)) {
+      branches.set(locationKey(branch.loc), counts)
+      const line = lineKey(branch.loc)
+      if (!branchesByLine.has(line)) {
+        branchesByLine.set(line, counts)
+      }
+    }
+  }
+
+  return { stmts, stmtsByLine, fns, fnsByLine, branches, branchesByLine }
 }
 
 /**
@@ -197,13 +269,6 @@ export class CoverageMerger {
       return JSON.parse(JSON.stringify(coverages[0]))
     }
 
-    type Location = { start: { line: number; column: number | null } }
-    type FnEntry = { loc: Location }
-    type BranchEntry = { loc: Location }
-
-    const locationKey = (loc: Location): string => `${loc.start.line}:${loc.start.column}`
-    const lineKey = (loc: Location): number => loc.start.line
-
     // Find best structure for each metric independently
     const bestStatements = coverages.reduce((best, current) =>
       Object.keys(current.statementMap || {}).length > Object.keys(best.statementMap || {}).length ? current : best
@@ -216,45 +281,6 @@ export class CoverageMerger {
     )
 
     // Build lookup maps for all coverages
-    const buildLookups = (data: FileCoverageData) => {
-      const stmts = new Map<string, number>()
-      const stmtsByLine = new Map<number, number>()
-      for (const [key, loc] of Object.entries(data.statementMap || {}) as [string, Location][]) {
-        const count = data.s[key] || 0
-        if (count > 0) {
-          stmts.set(locationKey(loc), count)
-          const line = lineKey(loc)
-          stmtsByLine.set(line, Math.max(stmtsByLine.get(line) || 0, count))
-        }
-      }
-
-      const fns = new Map<string, number>()
-      const fnsByLine = new Map<number, number>()
-      for (const [key, fn] of Object.entries(data.fnMap || {}) as [string, FnEntry][]) {
-        const count = data.f[key] || 0
-        if (count > 0) {
-          fns.set(locationKey(fn.loc), count)
-          const line = lineKey(fn.loc)
-          fnsByLine.set(line, Math.max(fnsByLine.get(line) || 0, count))
-        }
-      }
-
-      const branches = new Map<string, number[]>()
-      const branchesByLine = new Map<number, number[]>()
-      for (const [key, branch] of Object.entries(data.branchMap || {}) as [string, BranchEntry][]) {
-        const counts = data.b[key] || []
-        if (counts.some((c: number) => c > 0)) {
-          branches.set(locationKey(branch.loc), counts)
-          const line = lineKey(branch.loc)
-          if (!branchesByLine.has(line)) {
-            branchesByLine.set(line, counts)
-          }
-        }
-      }
-
-      return { stmts, stmtsByLine, fns, fnsByLine, branches, branchesByLine }
-    }
-
     const allLookups = coverages.map(buildLookups)
 
     // Start with best structure for each metric
@@ -367,53 +393,6 @@ export class CoverageMerger {
     additional: FileCoverageData,
     preferBase: boolean = false
   ): FileCoverageData {
-    type Location = { start: { line: number; column: number | null } }
-    type FnEntry = { loc: Location }
-    type BranchEntry = { loc: Location }
-
-    const locationKey = (loc: Location): string => `${loc.start.line}:${loc.start.column}`
-    const lineKey = (loc: Location): number => loc.start.line
-
-    // Build lookup maps
-    const buildLookups = (data: FileCoverageData) => {
-      const stmts = new Map<string, number>()
-      const stmtsByLine = new Map<number, number>()
-      for (const [key, loc] of Object.entries(data.statementMap || {}) as [string, Location][]) {
-        const count = data.s[key] || 0
-        if (count > 0) {
-          stmts.set(locationKey(loc), count)
-          const line = lineKey(loc)
-          stmtsByLine.set(line, Math.max(stmtsByLine.get(line) || 0, count))
-        }
-      }
-
-      const fns = new Map<string, number>()
-      const fnsByLine = new Map<number, number>()
-      for (const [key, fn] of Object.entries(data.fnMap || {}) as [string, FnEntry][]) {
-        const count = data.f[key] || 0
-        if (count > 0) {
-          fns.set(locationKey(fn.loc), count)
-          const line = lineKey(fn.loc)
-          fnsByLine.set(line, Math.max(fnsByLine.get(line) || 0, count))
-        }
-      }
-
-      const branches = new Map<string, number[]>()
-      const branchesByLine = new Map<number, number[]>()
-      for (const [key, branch] of Object.entries(data.branchMap || {}) as [string, BranchEntry][]) {
-        const counts = data.b[key] || []
-        if (counts.some((c: number) => c > 0)) {
-          branches.set(locationKey(branch.loc), counts)
-          const line = lineKey(branch.loc)
-          if (!branchesByLine.has(line)) {
-            branchesByLine.set(line, counts)
-          }
-        }
-      }
-
-      return { stmts, stmtsByLine, fns, fnsByLine, branches, branchesByLine }
-    }
-
     const baseLookups = buildLookups(base)
     const additionalLookups = buildLookups(additional)
 
@@ -550,11 +529,9 @@ export class CoverageMerger {
 
         data.branchMap = {
           '0': {
-            type: 'if',
-            loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
-            locations: [
-              { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
-            ],
+            type: IMPLICIT_BRANCH_TYPE,
+            loc: DEFAULT_IMPLICIT_LOCATION,
+            locations: [DEFAULT_IMPLICIT_LOCATION],
           },
         }
         data.b = { '0': wasLoaded ? [1] : [0] }
@@ -593,8 +570,8 @@ export class CoverageMerger {
         data.fnMap = {
           '0': {
             name: '(module)',
-            decl: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
-            loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+            decl: DEFAULT_IMPLICIT_LOCATION,
+            loc: DEFAULT_IMPLICIT_LOCATION,
             line: 1,
           },
         }

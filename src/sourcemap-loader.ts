@@ -12,8 +12,7 @@ import { fileURLToPath } from 'node:url'
 import convertSourceMap from 'convert-source-map'
 import type { SourceMapData, SourceFile, V8Coverage } from './types.js'
 import { DEFAULT_NEXTCOV_CONFIG } from './config.js'
-
-const FILE_PROTOCOL = 'file://'
+import { FILE_PROTOCOL, extractNextPath, SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN, normalizeWebpackSourcePath } from './constants.js'
 
 export class SourceMapLoader {
   private projectRoot: string
@@ -56,6 +55,15 @@ export class SourceMapLoader {
   }
 
   /**
+   * Convert Next.js path segment to file path
+   * Handles URL-encoded characters like %5Bid%5D -> [id]
+   */
+  private nextPathToFilePath(nextPath: string): string {
+    const decodedPath = decodeURIComponent(nextPath)
+    return join(this.nextBuildDir, decodedPath)
+  }
+
+  /**
    * Convert URL to file path
    */
   urlToFilePath(url: string): string | null {
@@ -64,12 +72,10 @@ export class SourceMapLoader {
       return fileURLToPath(url)
     }
 
-    // Handle Next.js URLs like /_next/static/chunks/...
-    if (url.includes('/_next/')) {
-      const nextPath = url.split('/_next/')[1]
-      // Decode URL-encoded characters like %5Bid%5D -> [id]
-      const decodedPath = decodeURIComponent(nextPath)
-      return join(this.nextBuildDir, decodedPath)
+    // Handle Next.js URLs (works for both /_next/... and http://.../_next/...)
+    const nextPath = extractNextPath(url)
+    if (nextPath) {
+      return this.nextPathToFilePath(nextPath)
     }
 
     // Handle relative paths
@@ -77,15 +83,9 @@ export class SourceMapLoader {
       return join(this.projectRoot, decodeURIComponent(url))
     }
 
-    // Handle http(s) URLs - extract path
+    // Handle http(s) URLs without /_next/ - extract pathname
     try {
       const parsed = new URL(url)
-      if (parsed.pathname.includes('/_next/')) {
-        const nextPath = parsed.pathname.split('/_next/')[1]
-        // Decode URL-encoded characters
-        const decodedPath = decodeURIComponent(nextPath)
-        return join(this.nextBuildDir, decodedPath)
-      }
       return join(this.projectRoot, decodeURIComponent(parsed.pathname))
     } catch {
       return null
@@ -113,7 +113,7 @@ export class SourceMapLoader {
 
     // Try sourceMappingURL comment
     if (code) {
-      const urlMatch = code.match(/\/\/[#@]\s*sourceMappingURL=(.+)$/m)
+      const urlMatch = code.match(SOURCE_MAPPING_URL_PATTERN)
       if (urlMatch) {
         const mapUrl = urlMatch[1].trim()
 
@@ -154,9 +154,7 @@ export class SourceMapLoader {
     }
 
     // Fallback to manual extraction for edge cases
-    const match = code.match(
-      /\/\/[#@]\s*sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,(.+)$/m
-    )
+    const match = code.match(INLINE_SOURCE_MAP_BASE64_PATTERN)
 
     if (match) {
       try {
@@ -233,7 +231,7 @@ export class SourceMapLoader {
    * Parse data URL source map
    */
   parseDataUrl(dataUrl: string): SourceMapData | null {
-    const match = dataUrl.match(/^data:application\/json;(?:charset=utf-8;)?base64,(.+)$/)
+    const match = dataUrl.match(DATA_URL_BASE64_PATTERN)
     if (match) {
       try {
         const decoded = Buffer.from(match[1], 'base64').toString('utf-8')
@@ -294,28 +292,16 @@ export class SourceMapLoader {
    * Handles webpack:// prefixes, _N_E prefixes, etc.
    */
   normalizeSourcePath(sourcePath: string): string {
-    // Remove webpack:// prefix
-    if (sourcePath.startsWith('webpack://')) {
-      sourcePath = sourcePath.replace(/^webpack:\/\/[^/]*\//, '')
-    }
-
-    // Remove _N_E/ prefix (Next.js internal)
-    if (sourcePath.startsWith('_N_E/')) {
-      sourcePath = sourcePath.slice(5)
-    }
-
-    // Remove leading ./
-    if (sourcePath.startsWith('./')) {
-      sourcePath = sourcePath.slice(2)
-    }
+    // Use shared normalization for webpack paths
+    let normalized = normalizeWebpackSourcePath(sourcePath)
 
     // Handle Windows absolute paths in source maps
-    const srcMatch = sourcePath.match(/[/\\]src[/\\](.+)$/)
+    const srcMatch = normalized.match(/[/\\]src[/\\](.+)$/)
     if (srcMatch) {
       return 'src/' + srcMatch[1].replace(/\\/g, '/')
     }
 
-    return sourcePath
+    return normalized
   }
 
   /**

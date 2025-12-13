@@ -22,6 +22,17 @@ export interface V8ScriptCoverage {
   source?: string
 }
 
+/**
+ * V8 script coverage with dev mode extensions
+ * DevModeServerCollector attaches source map data and original path
+ */
+export interface DevModeV8ScriptCoverage extends V8ScriptCoverage {
+  /** Pre-resolved source map data from dev mode collector */
+  sourceMapData?: SourceMapData
+  /** Original source file path (relative, e.g., "src/app/page.tsx") */
+  originalPath?: string
+}
+
 export interface SourceMapCacheEntry {
   lineLengths: number[]
   data: SourceMapData

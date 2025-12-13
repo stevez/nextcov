@@ -14,11 +14,14 @@
 
 import type { V8CoverageEntry } from './server.js'
 import type { SourceMapData } from '../types.js'
+import type CDP from 'chrome-remote-interface'
 import { DevModeSourceMapExtractor, type ExtractedSourceMap } from '../dev-mode-extractor.js'
+import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from '../config.js'
+import { isWebpackUrl } from '../constants.js'
 import { log } from '../logger.js'
 
-// Dynamically import chrome-remote-interface (optional dependency)
-type CDPClient = Awaited<ReturnType<typeof import('chrome-remote-interface')['default']>>
+/** CDP client type from chrome-remote-interface */
+type CDPClient = Awaited<ReturnType<typeof CDP>>
 
 export interface DevServerCollectorConfig {
   /** CDP port for the server worker process (default: 9231) */
@@ -61,8 +64,8 @@ export class DevModeServerCollector {
 
   constructor(config?: Partial<DevServerCollectorConfig>) {
     this.config = {
-      cdpPort: config?.cdpPort ?? 9231, // Worker process port
-      sourceRoot: config?.sourceRoot ?? 'src',
+      cdpPort: config?.cdpPort ?? DEFAULT_DEV_MODE_OPTIONS.devCdpPort,
+      sourceRoot: config?.sourceRoot ?? DEFAULT_NEXTCOV_CONFIG.sourceRoot.replace(/^\.\//, ''),
     }
     this.extractor = new DevModeSourceMapExtractor({
       sourceRoot: this.config.sourceRoot,
@@ -100,9 +103,7 @@ export class DevModeServerCollector {
         })
 
         // Check if this is a webpack script and resolve any waiting promises
-        if (params.url.includes('webpack-internal://') ||
-            params.url.includes('webpack://') ||
-            params.url.includes('(app-pages-browser)')) {
+        if (isWebpackUrl(params.url)) {
           // Resolve all waiting promises
           for (const resolve of this.webpackScriptResolvers) {
             resolve()
@@ -138,9 +139,7 @@ export class DevModeServerCollector {
    */
   isDevModeProcess(): boolean {
     for (const script of this.scripts.values()) {
-      if (script.url.includes('webpack-internal://') ||
-          script.url.includes('webpack://') ||
-          script.url.includes('(app-pages-browser)')) {
+      if (isWebpackUrl(script.url)) {
         return true
       }
     }
@@ -275,20 +274,24 @@ export class DevModeServerCollector {
       const results = await Promise.all(entryPromises)
       const entries = results.filter((e): e is DevServerCoverageEntry => e !== null)
 
-      // Cleanup
+      // Cleanup debugger (but keep client reference for finally block)
       await Debugger.disable()
-      await this.client.close()
-      this.client = null
 
       log(`  ✓ Collected ${entries.length} server coverage entries (dev mode)`)
       return entries
     } catch (error) {
       log(`  ⚠️ Failed to collect server coverage (dev mode): ${error}`)
+      return []
+    } finally {
+      // Always close CDP client to prevent resource leaks
       if (this.client) {
-        await this.client.close()
+        try {
+          await this.client.close()
+        } catch {
+          // Ignore close errors
+        }
         this.client = null
       }
-      return []
     }
   }
 

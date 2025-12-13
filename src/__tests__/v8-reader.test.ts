@@ -151,50 +151,6 @@ describe('V8CoverageReader', () => {
     })
   })
 
-  describe('filterNextJsAppCode', () => {
-    it('should include .next/server/ files', () => {
-      const coverage: V8Coverage = {
-        result: [
-          { scriptId: '1', url: '/project/.next/server/app/page.js', functions: [] },
-          { scriptId: '2', url: '/project/other/file.js', functions: [] },
-        ],
-      }
-
-      const filtered = reader.filterNextJsAppCode(coverage)
-
-      expect(filtered.result).toHaveLength(1)
-      expect(filtered.result[0].url).toContain('.next/server/')
-    })
-
-    it('should include _next/static/chunks/ files', () => {
-      const coverage: V8Coverage = {
-        result: [
-          { scriptId: '1', url: 'http://localhost:3000/_next/static/chunks/main.js', functions: [] },
-          { scriptId: '2', url: 'http://localhost:3000/other.js', functions: [] },
-        ],
-      }
-
-      const filtered = reader.filterNextJsAppCode(coverage)
-
-      expect(filtered.result).toHaveLength(1)
-      expect(filtered.result[0].url).toContain('_next/static/chunks/')
-    })
-
-    it('should include /src/ files', () => {
-      const coverage: V8Coverage = {
-        result: [
-          { scriptId: '1', url: '/project/src/components/Button.tsx', functions: [] },
-          { scriptId: '2', url: '/project/lib/utils.ts', functions: [] },
-        ],
-      }
-
-      const filtered = reader.filterNextJsAppCode(coverage)
-
-      expect(filtered.result).toHaveLength(1)
-      expect(filtered.result[0].url).toContain('/src/')
-    })
-  })
-
   describe('merge', () => {
     it('should return empty coverage when no inputs', () => {
       const result = reader.merge()

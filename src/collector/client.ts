@@ -8,6 +8,8 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
+import { isNextChunksUrl } from '../constants.js'
+import { log } from '../logger.js'
 
 export interface PlaywrightCoverageEntry {
   url: string
@@ -73,6 +75,12 @@ export class ClientCoverageCollector {
     const files = await fs.readdir(this.config.cacheDir)
     const coverageFiles = files.filter((f) => f.startsWith('client-') && f.endsWith('.json'))
 
+    if (coverageFiles.length === 0) {
+      return []
+    }
+
+    log(`  Reading ${coverageFiles.length} client coverage file(s)...`)
+
     const allCoverage: PlaywrightCoverageEntry[] = []
 
     for (const file of coverageFiles) {
@@ -82,8 +90,8 @@ export class ClientCoverageCollector {
         if (data.result && Array.isArray(data.result)) {
           allCoverage.push(...data.result)
         }
-      } catch {
-        // Skip invalid files
+      } catch (error) {
+        log(`  Skipping invalid coverage file ${file}: ${error instanceof Error ? error.message : 'unknown error'}`)
       }
     }
 
@@ -113,7 +121,7 @@ export class ClientCoverageCollector {
       if (normalizedUrl.includes('/node_modules/')) return false
 
       // Include Next.js chunks
-      if (normalizedUrl.includes('/_next/static/chunks/')) {
+      if (isNextChunksUrl(normalizedUrl)) {
         // Exclude vendor chunks (numeric prefixes like 878-xxx.js)
         const filename = normalizedUrl.split('/').pop() || ''
         if (/^\d+/.test(filename)) return false

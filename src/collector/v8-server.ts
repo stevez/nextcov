@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CDPClient } from 'monocart-coverage-reports'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
+import { getServerPatterns, isLocalFileUrl, isNodeModulesUrl, containsSourceRoot } from '../constants.js'
 import { log } from '../logger.js'
 
 export interface V8ServerCoverageEntry {
@@ -157,9 +158,7 @@ export class V8ServerCoverageCollector {
     const sourceRoot = normalizePath(this.config.sourceRoot).replace(/^\.\//, '')
 
     // Production build patterns
-    const serverAppPattern = `${buildDir}/server/app`
-    const serverChunksPattern = `${buildDir}/server/chunks`
-    const serverSrcPattern = `${buildDir}/server/src`
+    const serverPatterns = getServerPatterns(buildDir)
 
     // Debug: log URL patterns to understand coverage data
     const allFileUrls = entries.filter((e) => e.url?.startsWith('file:'))
@@ -178,27 +177,21 @@ export class V8ServerCoverageCollector {
     return entries.filter((entry) => {
       const url = entry.url || ''
 
-      // Only file URLs
-      if (!url.startsWith('file:')) return false
+      // Only local file URLs (not Node builtins or remote)
+      if (!isLocalFileUrl(url)) return false
 
-      // Exclude node_modules
-      if (url.includes('node_modules')) return false
+      // Exclude third-party dependencies
+      if (isNodeModulesUrl(url)) return false
 
       // Normalize URL for pattern matching
       const normalizedUrl = normalizePath(url)
 
-      // Production mode: Include server/app files (server components, API routes, server actions)
-      if (normalizedUrl.includes(serverAppPattern)) return true
-
-      // Production mode: Include server/chunks (shared server code)
-      if (normalizedUrl.includes(serverChunksPattern)) return true
-
-      // Production mode: Include server/src (middleware)
-      if (normalizedUrl.includes(serverSrcPattern)) return true
+      // Production mode: Include files matching any server pattern
+      if (serverPatterns.some(pattern => normalizedUrl.includes(pattern))) return true
 
       // Dev mode: Include source files from sourceRoot
       // In dev mode, Next.js serves original source files directly
-      if (sourceRoot && normalizedUrl.includes(`/${sourceRoot}/`)) return true
+      if (sourceRoot && containsSourceRoot(normalizedUrl, sourceRoot)) return true
 
       return false
     }).filter((entry) => {
@@ -217,8 +210,8 @@ export class V8ServerCoverageCollector {
         if (existsSync(filePath)) {
           entry.source = readFileSync(filePath, 'utf-8')
         }
-      } catch {
-        // Skip if file can't be read
+      } catch (error) {
+        log(`  Skipping file ${entry.url}: ${error instanceof Error ? error.message : 'unknown error'}`)
       }
     }
   }
@@ -232,13 +225,21 @@ export class V8ServerCoverageCollector {
    * 4. Attaches source content
    */
   async collect(): Promise<V8ServerCoverageEntry[]> {
-    // Step 1: Trigger coverage write via CDP
-    const coverageDir = await this.triggerCoverageWrite()
+    let coverageDir: string | null = null
 
-    // Close CDP connection
-    if (this.cdpClient) {
-      await this.cdpClient.close()
-      this.cdpClient = null
+    try {
+      // Step 1: Trigger coverage write via CDP
+      coverageDir = await this.triggerCoverageWrite()
+    } finally {
+      // Always close CDP connection to prevent resource leaks
+      if (this.cdpClient) {
+        try {
+          await this.cdpClient.close()
+        } catch {
+          // Ignore close errors
+        }
+        this.cdpClient = null
+      }
     }
 
     // Use configured dir if trigger didn't return one
