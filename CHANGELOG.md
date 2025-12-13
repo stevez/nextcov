@@ -2,11 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.4] - 2024-12-13
+
+### Fixed
+
+- **CLI not running when invoked via npm bin symlink** - When running via `npx nextcov` or `./node_modules/.bin/nextcov`, the `isMainModule` check failed because `process.argv[1]` is the symlink path (`/nextcov`) not the actual file path (`/cli.js`). Added `/nextcov` to the path matching.
+- **Use `process.exitCode` instead of `process.exit()`** - Allow Node to exit naturally after all I/O operations complete, avoiding potential stdout buffering issues
+
 ## [0.5.3] - 2024-12-13
 
 ### Fixed
 
-- **No CLI output in CI environments** - Flush stdout before process exit to fix output buffering on Linux/GitHub Actions
+- **No CLI output in CI environments** - Flush stdout before process exit to fix output buffering on Linux/GitHub Actions (incomplete fix)
 
 ## [0.5.2] - 2024-12-13
 
