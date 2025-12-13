@@ -2,11 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2024-12-13
+
+### Fixed
+
+- **CLI not running on Linux/CI** - Use `fileURLToPath` for cross-platform path comparison instead of string manipulation
+
 ## [0.5.1] - 2024-12-13
 
 ### Fixed
 
-- **CLI not running on Linux/CI** - Fixed `import.meta.url` path comparison for Linux environments where file URLs use `file://` format
+- **CLI not running on Linux/CI** - Fixed `import.meta.url` path comparison for Linux environments where file URLs use `file://` format (incomplete fix)
 
 ## [0.5.0] - 2024-12-12
 

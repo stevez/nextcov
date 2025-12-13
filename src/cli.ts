@@ -8,6 +8,7 @@
 
 import { resolve } from 'path'
 import { existsSync } from 'fs'
+import { fileURLToPath } from 'url'
 
 export const HELP = `
 nextcov - Coverage collection for Next.js + Playwright
@@ -227,10 +228,17 @@ async function runMerge(args: string[]) {
 }
 
 // Only run main() when executed directly, not when imported for testing
-const isMainModule = import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`
-  || import.meta.url === `file://${process.argv[1]}`
-  || process.argv[1]?.endsWith('cli.ts')
-  || process.argv[1]?.endsWith('cli.js')
+// Use fileURLToPath for cross-platform compatibility
+const currentFile = fileURLToPath(import.meta.url)
+const executedFile = process.argv[1]
+
+// Normalize paths for comparison (handles Windows backslashes)
+const normalizedCurrent = currentFile.replace(/\\/g, '/')
+const normalizedExecuted = executedFile?.replace(/\\/g, '/')
+
+const isMainModule = normalizedCurrent === normalizedExecuted
+  || normalizedExecuted?.endsWith('/cli.js')
+  || normalizedExecuted?.endsWith('/cli.ts')
 
 if (isMainModule) {
   main().catch((error) => {
