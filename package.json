@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
