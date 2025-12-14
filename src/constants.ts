@@ -24,9 +24,9 @@ export function isWebpackUrl(url: string): boolean {
 
 /**
  * Regex to remove webpack:// prefix with app name
- * Matches: webpack://app-name/ or webpack://_N_E/
+ * Matches: webpack://app-name/ or webpack://_N_E/ or webpack:/// (empty app name)
  */
-export const WEBPACK_PREFIX_PATTERN = /^webpack:\/\/[^/]+\//
+export const WEBPACK_PREFIX_PATTERN = /^webpack:\/\/[^/]*\//
 
 /**
  * Next.js internal prefix in source paths

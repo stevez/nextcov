@@ -103,44 +103,44 @@ describe('CoverageConverter', () => {
     })
   })
 
-  describe('isValidSource', () => {
+  describe('getSourceRejectionReason', () => {
     it('should reject empty source', () => {
-      expect(converter['isValidSource']('', null)).toBe(false)
-      expect(converter['isValidSource'](null, null)).toBe(false)
-      expect(converter['isValidSource']('   ', null)).toBe(false)
+      expect(converter['getSourceRejectionReason']('', null)).toBe('empty/null source')
+      expect(converter['getSourceRejectionReason'](null, null)).toBe('empty/null source')
+      expect(converter['getSourceRejectionReason']('   ', null)).toBe('empty/null source')
     })
 
     it('should reject webpack externals', () => {
-      expect(converter['isValidSource']('external commonjs react', 'code')).toBe(false)
-      expect(converter['isValidSource']('external%20commonjs%20react', 'code')).toBe(false)
+      expect(converter['getSourceRejectionReason']('external commonjs react', 'code')).toBe('webpack external')
+      expect(converter['getSourceRejectionReason']('external%20commonjs%20react', 'code')).toBe('webpack external')
     })
 
     it('should accept webpack queries with content in dev mode', () => {
-      // Dev mode sources like webpack://_N_E/?xxxx are valid if they have content
-      expect(converter['isValidSource']('webpack://app/src/file.ts?module', 'code')).toBe(true)
+      // Dev mode sources like webpack://app/src/file.ts?module are valid if they have content
+      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?module', 'code')).toBe(null)
     })
 
     it('should reject webpack queries without content', () => {
-      expect(converter['isValidSource']('webpack://app/src/file.ts?module', null)).toBe(false)
+      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?module', null)).toBe('no sourcesContent')
     })
 
     it('should reject node_modules', () => {
-      expect(converter['isValidSource']('node_modules/lodash/index.js', 'code')).toBe(false)
-      expect(converter['isValidSource']('webpack://app/node_modules/react/index.js', 'code')).toBe(false)
+      expect(converter['getSourceRejectionReason']('node_modules/lodash/index.js', 'code')).toBe('node_modules')
+      expect(converter['getSourceRejectionReason']('webpack://app/node_modules/react/index.js', 'code')).toBe('node_modules')
     })
 
     it('should reject sources without src/', () => {
-      expect(converter['isValidSource']('lib/utils.ts', 'code')).toBe(false)
+      expect(converter['getSourceRejectionReason']('lib/utils.ts', 'code')).toContain('no src/ in path')
     })
 
     it('should reject sources without content', () => {
-      expect(converter['isValidSource']('src/index.ts', null)).toBe(false)
-      expect(converter['isValidSource']('src/index.ts', undefined)).toBe(false)
+      expect(converter['getSourceRejectionReason']('src/index.ts', null)).toBe('no sourcesContent')
+      expect(converter['getSourceRejectionReason']('src/index.ts', undefined)).toBe('no sourcesContent')
     })
 
     it('should accept valid source with src/ and content', () => {
-      expect(converter['isValidSource']('src/index.ts', 'const x = 1')).toBe(true)
-      expect(converter['isValidSource']('webpack://app/src/utils.ts', 'export const add = (a, b) => a + b')).toBe(true)
+      expect(converter['getSourceRejectionReason']('src/index.ts', 'const x = 1')).toBe(null)
+      expect(converter['getSourceRejectionReason']('webpack://app/src/utils.ts', 'export const add = (a, b) => a + b')).toBe(null)
     })
   })
 
@@ -471,22 +471,22 @@ describe('CoverageConverter', () => {
     })
   })
 
-  describe('isValidSource - edge cases', () => {
+  describe('getSourceRejectionReason - edge cases', () => {
     it('should accept sources with webpack queries when they have content', () => {
       // Dev mode sources with queries are valid if they have content
-      expect(converter['isValidSource']('webpack://app/src/file.ts?abc=123', 'code')).toBe(true)
+      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?abc=123', 'code')).toBe(null)
     })
 
     it('should reject sources with webpack queries without content', () => {
-      expect(converter['isValidSource']('webpack://app/src/file.ts?abc=123', null)).toBe(false)
+      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?abc=123', null)).toBe('no sourcesContent')
     })
 
     it('should accept sources with backslash paths', () => {
-      expect(converter['isValidSource']('webpack://app\\src\\file.ts', 'const x = 1')).toBe(true)
+      expect(converter['getSourceRejectionReason']('webpack://app\\src\\file.ts', 'const x = 1')).toBe(null)
     })
 
     it('should reject absolute Windows paths outside project', () => {
-      expect(converter['isValidSource']('C:/other/project/src/file.ts', 'code')).toBe(false)
+      expect(converter['getSourceRejectionReason']('C:/other/project/src/file.ts', 'code')).toContain('Windows path not in project')
     })
   })
 

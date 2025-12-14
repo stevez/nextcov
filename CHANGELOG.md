@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2024-12-13
+
+### Fixed
+
+- **Production E2E coverage showing 0%** - Fixed multiple issues that caused production mode coverage to fail while dev mode worked:
+  - Fixed `WEBPACK_PREFIX_PATTERN` regex to handle `webpack:///` URLs with empty app names (changed `[^/]+` to `[^/]*`)
+  - Added rejection of sources that normalize to empty paths (e.g., `webpack://_N_E/?c9ce` query-only URLs)
+  - Fixed Windows path case sensitivity issue - source maps use `C:\Users\...` but `process.cwd()` returns `c:\Users\...`
+
+### Changed
+
+- **Improved source map debugging** - Renamed `isValidSource()` to `getSourceRejectionReason()` which returns the specific reason a source was rejected, making debugging much easier
+- **Added debug logging** - `astV8ToIstanbul` errors and source map sanitization now log detailed information when `log: true` is set
+
 ## [0.6.0] - 2024-12-13
 
 ### Fixed
