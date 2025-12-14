@@ -331,7 +331,7 @@ npx playwright test
 | **Source Maps** | Inline (base64 in JS) | External (.map files) |
 | **Build Required** | No | Yes |
 | **Hot Reload** | Yes | No |
-| **Build Directory** | Always `.next` | Configurable (`buildDir`) |
+| **Build Directory** | Not used (inline source maps) | Configurable (`buildDir`) |
 | **CDP Port** | `cdpPort + 1` (e.g., 9231) | `cdpPort` (e.g., 9230) |
 | **Performance** | Slower | Faster |
 | **Recommended For** | Development iteration | CI/CD, final coverage |

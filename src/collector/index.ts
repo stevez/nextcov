@@ -38,7 +38,6 @@ export {
   createDevModeServerCollector,
   type DevServerCollectorConfig,
   type DevServerCoverageEntry,
-  type ScriptInfo,
 } from './dev-server.js'
 
 export {

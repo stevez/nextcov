@@ -362,10 +362,9 @@ async function finalizeDevModeCoverage(
   }
 
   // Step 3: Process and generate reports
-  // In dev mode, Next.js always uses .next as the build directory
-  const devModeOpts = { ...opts, buildDir: '.next' }
+  // Dev mode uses inline source maps extracted via CDP, so buildDir is not used
   try {
-    const result = await processCoverageAndGenerateReports(allCoverage, devModeOpts)
+    const result = await processCoverageAndGenerateReports(allCoverage, opts)
     if (opts.cleanup) {
       await cleanupCoverageFiles(opts, null)
     }
