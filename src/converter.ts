@@ -676,7 +676,8 @@ export class CoverageConverter {
       })
 
       return istanbulCoverage as CoverageMapData
-    } catch {
+    } catch (error) {
+      log(`  Debug: astV8ToIstanbul error: ${error instanceof Error ? error.message : error}`)
       return null
     }
   }
@@ -695,18 +696,37 @@ export class CoverageConverter {
 
     // Step 1: Identify valid source indices
     const validSourceIndices = new Set<number>()
+    const rejectionReasons: string[] = []
+    const acceptedSources: string[] = []
 
     for (let i = 0; i < sourceMap.sources.length; i++) {
       const source = sourceMap.sources[i]
       const content = sourceMap.sourcesContent?.[i]
-      if (this.isValidSource(source, content)) {
+      const reason = this.getSourceRejectionReason(source, content)
+      if (!reason) {
         validSourceIndices.add(i)
+        if (acceptedSources.length < 5) {
+          acceptedSources.push(`[${i}] ${source?.substring(0, 60)}`)
+        }
+      } else if (rejectionReasons.length < 5) {
+        // Log first 5 rejection reasons for debugging
+        rejectionReasons.push(`[${i}] ${source?.substring(0, 60)}: ${reason}`)
       }
     }
 
     // If no valid sources, skip this entry
     if (validSourceIndices.size === 0) {
+      log(`  Debug: sanitizeSourceMap rejected all ${sourceMap.sources.length} sources`)
+      if (rejectionReasons.length > 0) {
+        rejectionReasons.forEach(r => log(`    ${r}`))
+      }
       return undefined
+    }
+
+    // Log accepted sources for debugging
+    if (acceptedSources.length > 0) {
+      log(`  Debug: sanitizeSourceMap accepted ${validSourceIndices.size}/${sourceMap.sources.length} sources`)
+      acceptedSources.forEach(s => log(`    ✓ ${s}`))
     }
 
     // If all sources are valid, just normalize and return
@@ -786,56 +806,47 @@ export class CoverageConverter {
   }
 
   /**
-   * Check if a source is valid for coverage
+   * Get rejection reason for a source (returns null if valid)
+   * Used for debugging why sources are being filtered out
    */
-  private isValidSource(source: string | null, content?: string | null): boolean {
-    // Empty or null source - causes "Missing original filename" error
+  private getSourceRejectionReason(source: string | null, content?: string | null): string | null {
     if (!source || source.trim() === '') {
-      return false
+      return 'empty/null source'
     }
 
-    // Webpack externals
     if (source.startsWith('external ') || source.includes('external%20commonjs')) {
-      return false
+      return 'webpack external'
     }
 
-    // Webpack internal queries - but allow them if we have sourcesContent
-    // In dev mode with eval-source-map, these ARE valid sources with content
-    if (source.startsWith('webpack://') && source.includes('?')) {
-      // If we have content, it's a dev mode source - allow it
-      if (!content || typeof content !== 'string') {
-        return false
-      }
-      // Continue validation for dev mode sources
-    }
-
-    // Absolute Windows paths not in our project
-    if (/^[A-Z]:[/\\]/.test(source)) {
-      if (!source.startsWith(this.projectRoot)) {
-        return false
-      }
-    }
-
+    // Normalize the source path first to check if it resolves to something useful
     const normalizedSource = this.sourceMapLoader.normalizeSourcePath(source)
 
-    // Skip node_modules
+    // Reject sources that normalize to empty or just whitespace (e.g., webpack://_N_E/?xxxx)
+    if (!normalizedSource || normalizedSource.trim() === '') {
+      return 'normalized to empty path'
+    }
+
+    if (/^[A-Za-z]:[/\\]/.test(source)) {
+      if (!source.toLowerCase().startsWith(this.projectRoot.toLowerCase())) {
+        return `Windows path not in project (source starts with ${source.substring(0, 20)}, projectRoot=${this.projectRoot.substring(0, 20)})`
+      }
+    }
+
     if (normalizedSource.includes('node_modules/') || normalizedSource.includes('node_modules\\')) {
-      return false
+      return 'node_modules'
     }
 
-    // Must contain src/ - our code (check both original and normalized)
-    // Exception: dev mode sources like "webpack://_N_E/?xxxx" should pass if they have content
-    const isDevModeSource = source.startsWith('webpack://') && source.includes('?')
-    if (!isDevModeSource && !normalizedSource.includes('src/') && !source.includes('/src/') && !source.includes('\\src\\')) {
-      return false
+    // Check if source has src/ in its path
+    // For webpack URLs with proper paths like webpack://_N_E/./src/app/page.tsx, the normalized version should have src/
+    if (!normalizedSource.includes('src/') && !source.includes('/src/') && !source.includes('\\src\\')) {
+      return `no src/ in path (normalized=${normalizedSource.substring(0, 40)})`
     }
 
-    // Sources without content cannot be processed
     if (!content || typeof content !== 'string') {
-      return false
+      return 'no sourcesContent'
     }
 
-    return true
+    return null // Valid
   }
 
   /**
