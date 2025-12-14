@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2024-12-13
+
+### Changed
+
+- **Unified CDP library** - Replaced `chrome-remote-interface` with monocart's built-in `CDPClient` for dev mode coverage collection
+  - Dev mode now uses `startJSCoverage()` / `stopJSCoverage()` API which automatically handles script source collection
+  - Simplified `DevModeServerCollector` implementation (~130 lines removed)
+  - One less dependency to maintain
+
+### Removed
+
+- **Removed `chrome-remote-interface` dependency** - All CDP operations now use `monocart-coverage-reports` CDPClient
+- **Removed `ScriptInfo` type export** - No longer tracked separately in the new implementation
+
 ## [0.6.1] - 2024-12-13
 
 ### Fixed

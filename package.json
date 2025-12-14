@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -55,7 +55,6 @@
   },
   "dependencies": {
     "@babel/parser": "^7.24.0",
-    "chrome-remote-interface": "^0.33.0",
     "@bcoe/v8-coverage": "^1.0.0",
     "@jridgewell/sourcemap-codec": "^1.4.0",
     "acorn": "^8.12.0",

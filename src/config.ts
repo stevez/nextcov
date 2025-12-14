@@ -53,7 +53,11 @@ export interface NextcovConfig {
   /** CDP port for server-side coverage collection (default: 9230 or CDP_PORT env) */
   cdpPort?: number
 
-  /** Next.js build output directory (default: '.next') */
+  /**
+   * Next.js build output directory (default: '.next').
+   * Only used in production mode to locate external source map files.
+   * Dev mode uses inline source maps extracted via CDP, so this setting is ignored.
+   */
   buildDir?: string
 
   /** Output directory for E2E coverage reports (default: 'coverage/e2e') */

@@ -75,7 +75,6 @@ export {
   createDevModeServerCollector,
   type DevServerCollectorConfig,
   type DevServerCoverageEntry,
-  type ScriptInfo,
   // V8 server collector (uses NODE_V8_COVERAGE + CDP trigger)
   V8ServerCoverageCollector,
   createV8ServerCollector,

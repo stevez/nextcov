@@ -1,9 +1,9 @@
 /**
  * Dev Mode Server Coverage Collector
  *
- * Collects server-side coverage in dev mode using CDP Debugger API.
+ * Collects server-side coverage in dev mode using monocart-coverage-reports CDPClient.
  * In dev mode, server scripts have inline source maps that need to be
- * extracted from the script source via Debugger.getScriptSource().
+ * extracted from the script source.
  *
  * Key difference from production:
  * - Production: External .map files in .next/server/
@@ -14,27 +14,31 @@
 
 import type { V8CoverageEntry } from './server.js'
 import type { SourceMapData } from '../types.js'
-import type CDP from 'chrome-remote-interface'
-import { DevModeSourceMapExtractor, type ExtractedSourceMap } from '../dev-mode-extractor.js'
+import { CDPClient } from 'monocart-coverage-reports'
+import { DevModeSourceMapExtractor } from '../dev-mode-extractor.js'
 import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from '../config.js'
-import { isWebpackUrl } from '../constants.js'
 import { log } from '../logger.js'
 
-/** CDP client type from chrome-remote-interface */
-type CDPClient = Awaited<ReturnType<typeof CDP>>
+/** Monocart CDPClient type */
+type MonocartCDPClient = Awaited<ReturnType<typeof CDPClient>>
+
+/** Coverage entry returned by monocart stopJSCoverage */
+interface MonocartCoverageEntry {
+  scriptId: string
+  url: string
+  source: string
+  functions: Array<{
+    functionName: string
+    ranges: Array<{ startOffset: number; endOffset: number; count: number }>
+    isBlockCoverage: boolean
+  }>
+}
 
 export interface DevServerCollectorConfig {
   /** CDP port for the server worker process (default: 9231) */
   cdpPort: number
   /** Source root for filtering project files (default: 'src') */
   sourceRoot: string
-}
-
-export interface ScriptInfo {
-  scriptId: string
-  url: string
-  hasSourceMap: boolean
-  sourceMapUrl?: string
 }
 
 export interface DevServerCoverageEntry extends V8CoverageEntry {
@@ -47,20 +51,16 @@ export interface DevServerCoverageEntry extends V8CoverageEntry {
 /**
  * Dev Mode Server Coverage Collector
  *
- * Uses CDP Debugger API to:
- * 1. Enable debugger and listen for scriptParsed events
- * 2. Filter for project source scripts (webpack-internal://...src/...)
- * 3. Get script source via Debugger.getScriptSource()
- * 4. Extract inline base64 source maps
- * 5. Collect coverage via Profiler API
+ * Uses monocart-coverage-reports CDPClient to:
+ * 1. Connect to CDP and start JS coverage collection
+ * 2. Automatically collect script sources via Debugger API
+ * 3. Stop coverage and get results with source attached
+ * 4. Extract inline base64 source maps from webpack scripts
  */
 export class DevModeServerCollector {
   private config: DevServerCollectorConfig
-  private client: CDPClient | null = null
-  private scripts: Map<string, ScriptInfo> = new Map()
+  private client: MonocartCDPClient | null = null
   private extractor: DevModeSourceMapExtractor
-  private CDP: typeof import('chrome-remote-interface')['default'] | null = null
-  private webpackScriptResolvers: Array<() => void> = []
 
   constructor(config?: Partial<DevServerCollectorConfig>) {
     this.config = {
@@ -73,54 +73,24 @@ export class DevModeServerCollector {
   }
 
   /**
-   * Connect to CDP and start collecting scripts
+   * Connect to CDP and start JS coverage collection
    */
   async connect(): Promise<boolean> {
     try {
-      // Dynamically import chrome-remote-interface
-      if (!this.CDP) {
-        const module = await import('chrome-remote-interface')
-        this.CDP = module.default
+      log(`  Connecting to CDP (dev mode) at port ${this.config.cdpPort}...`)
+
+      // Use monocart CDPClient - it handles debugger setup and script source collection
+      this.client = await CDPClient({ port: this.config.cdpPort })
+
+      if (!this.client) {
+        log('  ⚠️ Failed to create CDP client (dev mode)')
+        return false
       }
 
-      log(`  Connecting to CDP (dev mode) at port ${this.config.cdpPort}...`)
-      this.client = await this.CDP({ port: this.config.cdpPort })
+      // Start JS coverage - this enables Debugger and Profiler
+      await this.client.startJSCoverage()
 
-      // Enable debugger to get script info
-      const { Debugger, Profiler } = this.client
-
-      // Listen for script parsed events
-      Debugger.on('scriptParsed', (params: {
-        scriptId: string
-        url: string
-        sourceMapURL?: string
-      }) => {
-        this.scripts.set(params.scriptId, {
-          scriptId: params.scriptId,
-          url: params.url,
-          hasSourceMap: !!params.sourceMapURL,
-          sourceMapUrl: params.sourceMapURL,
-        })
-
-        // Check if this is a webpack script and resolve any waiting promises
-        if (isWebpackUrl(params.url)) {
-          // Resolve all waiting promises
-          for (const resolve of this.webpackScriptResolvers) {
-            resolve()
-          }
-          this.webpackScriptResolvers = []
-        }
-      })
-
-      await Debugger.enable()
       log('  ✓ Connected to CDP (dev mode)')
-
-      // Start profiler for coverage
-      await Profiler.enable()
-      await Profiler.startPreciseCoverage({
-        callCount: true,
-        detailed: true,
-      })
       log('  ✓ Started JS coverage collection (dev mode)')
 
       return true
@@ -128,84 +98,6 @@ export class DevModeServerCollector {
       log(`  ⚠️ Failed to connect to CDP (dev mode): ${error}`)
       log('  Note: In dev mode, server code runs on port 9231 (worker process)')
       return false
-    }
-  }
-
-  /**
-   * Check if this is a dev mode process by looking for webpack eval scripts.
-   * Dev mode uses eval-source-map which creates scripts with URLs like:
-   * webpack-internal:///./src/... or webpack://...
-   * Production mode doesn't have these.
-   */
-  isDevModeProcess(): boolean {
-    for (const script of this.scripts.values()) {
-      if (isWebpackUrl(script.url)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  /**
-   * Wait for webpack scripts to be parsed.
-   *
-   * This is event-driven: it resolves immediately if webpack scripts are already
-   * present, or waits for the next scriptParsed event that contains webpack URLs.
-   *
-   * @param timeoutMs Maximum time to wait (default: 10000ms)
-   * @returns true if webpack scripts were found, false if timed out
-   */
-  async waitForWebpackScripts(timeoutMs: number = 10000): Promise<boolean> {
-    // Already have webpack scripts?
-    if (this.isDevModeProcess()) {
-      return true
-    }
-
-    // Wait for a scriptParsed event with webpack URL
-    return new Promise<boolean>((resolve) => {
-      const timeoutId = setTimeout(() => {
-        // Remove this resolver from the array
-        const index = this.webpackScriptResolvers.indexOf(resolveWithTrue)
-        if (index !== -1) {
-          this.webpackScriptResolvers.splice(index, 1)
-        }
-        resolve(false)
-      }, timeoutMs)
-
-      const resolveWithTrue = () => {
-        clearTimeout(timeoutId)
-        resolve(true)
-      }
-
-      this.webpackScriptResolvers.push(resolveWithTrue)
-    })
-  }
-
-  /**
-   * Get all project scripts (src/ files)
-   */
-  getProjectScripts(): ScriptInfo[] {
-    return Array.from(this.scripts.values()).filter((script) =>
-      this.extractor.isProjectScript(script.url)
-    )
-  }
-
-  /**
-   * Extract source map from a script
-   */
-  async extractScriptSourceMap(scriptId: string): Promise<ExtractedSourceMap | null> {
-    if (!this.client) return null
-
-    const script = this.scripts.get(scriptId)
-    if (!script) return null
-
-    try {
-      const { Debugger } = this.client
-      const { scriptSource } = await Debugger.getScriptSource({ scriptId })
-
-      return this.extractor.extractFromScriptSource(script.url, scriptSource)
-    } catch {
-      return null
     }
   }
 
@@ -219,63 +111,50 @@ export class DevModeServerCollector {
     }
 
     try {
-      const { Profiler, Debugger } = this.client
+      // Stop coverage and get results - monocart already includes source in each entry
+      const coverageEntries = await this.client.stopJSCoverage() as MonocartCoverageEntry[]
 
-      // Stop coverage and get results
-      const { result: coverageResult } = await Profiler.takePreciseCoverage()
-      await Profiler.stopPreciseCoverage()
+      if (!coverageEntries || coverageEntries.length === 0) {
+        log('  ⚠️ No coverage entries returned (dev mode)')
+        return []
+      }
 
-      // Filter to project scripts
-      const projectScripts = this.getProjectScripts()
-      log(`  Found ${projectScripts.length} project scripts in dev mode`)
+      log(`  Found ${coverageEntries.length} total scripts`)
 
-      // Filter to only project scripts with coverage
-      const projectCoverage = coverageResult.filter((coverage) => {
-        const script = this.scripts.get(coverage.scriptId)
-        return script && this.extractor.isProjectScript(script.url)
-      })
+      // Filter to project scripts only (webpack-internal URLs with src/)
+      const projectEntries = coverageEntries.filter((entry) =>
+        this.extractor.isProjectScript(entry.url)
+      )
 
-      // Build coverage entries with source maps - fetch all sources in parallel
-      const entryPromises = projectCoverage.map(async (coverage) => {
-        const script = this.scripts.get(coverage.scriptId)!
+      log(`  Found ${projectEntries.length} project scripts in dev mode`)
 
-        try {
-          const { scriptSource } = await Debugger.getScriptSource({
-            scriptId: coverage.scriptId,
-          })
+      // Transform entries and extract source maps
+      const entries: DevServerCoverageEntry[] = []
 
-          const extracted = this.extractor.extractFromScriptSource(script.url, scriptSource)
+      for (const coverage of projectEntries) {
+        const extracted = this.extractor.extractFromScriptSource(coverage.url, coverage.source)
 
-          const entry: DevServerCoverageEntry = {
-            url: script.url,
-            source: scriptSource,
-            functions: coverage.functions.map((fn) => ({
-              functionName: fn.functionName,
-              ranges: fn.ranges.map((r) => ({
-                startOffset: r.startOffset,
-                endOffset: r.endOffset,
-                count: r.count,
-              })),
-              isBlockCoverage: fn.isBlockCoverage,
+        const entry: DevServerCoverageEntry = {
+          url: coverage.url,
+          source: coverage.source,
+          functions: coverage.functions.map((fn) => ({
+            functionName: fn.functionName,
+            ranges: fn.ranges.map((r) => ({
+              startOffset: r.startOffset,
+              endOffset: r.endOffset,
+              count: r.count,
             })),
-          }
-
-          if (extracted) {
-            entry.sourceMapData = this.extractor.toStandardSourceMap(extracted)
-            entry.originalPath = extracted.originalPath
-          }
-
-          return entry
-        } catch {
-          return null
+            isBlockCoverage: fn.isBlockCoverage,
+          })),
         }
-      })
 
-      const results = await Promise.all(entryPromises)
-      const entries = results.filter((e): e is DevServerCoverageEntry => e !== null)
+        if (extracted) {
+          entry.sourceMapData = this.extractor.toStandardSourceMap(extracted)
+          entry.originalPath = extracted.originalPath
+        }
 
-      // Cleanup debugger (but keep client reference for finally block)
-      await Debugger.disable()
+        entries.push(entry)
+      }
 
       log(`  ✓ Collected ${entries.length} server coverage entries (dev mode)`)
       return entries
@@ -293,6 +172,26 @@ export class DevModeServerCollector {
         this.client = null
       }
     }
+  }
+
+  /**
+   * Check if connected and has webpack scripts (dev mode indicator)
+   * Note: This is now less useful since we don't track scripts separately,
+   * but kept for API compatibility
+   */
+  isDevModeProcess(): boolean {
+    // In the new implementation, we determine this during collect()
+    // by checking if any entries have webpack URLs
+    return true
+  }
+
+  /**
+   * Wait for webpack scripts - now a no-op since monocart handles this
+   * Kept for API compatibility
+   */
+  async waitForWebpackScripts(_timeoutMs: number = 10000): Promise<boolean> {
+    // Monocart's startJSCoverage already waits for script parsing
+    return true
   }
 
   /**

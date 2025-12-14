@@ -14,9 +14,9 @@ vi.mock('../../logger.js', () => ({
   error: vi.fn(),
 }))
 
-// Mock chrome-remote-interface
-vi.mock('chrome-remote-interface', () => ({
-  default: vi.fn(),
+// Mock monocart-coverage-reports CDPClient
+vi.mock('monocart-coverage-reports', () => ({
+  CDPClient: vi.fn(),
 }))
 
 describe('DevModeServerCollector', () => {
@@ -56,10 +56,21 @@ describe('DevModeServerCollector', () => {
   })
 
   describe('connect', () => {
-    it('should return false when CDP connection fails', async () => {
+    it('should return false when CDPClient returns null', async () => {
       const { log } = await import('../../logger.js')
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockRejectedValue(new Error('Connection refused'))
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(null)
+
+      const result = await collector.connect()
+
+      expect(result).toBe(false)
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to create CDP client'))
+    })
+
+    it('should return false when CDPClient throws', async () => {
+      const { log } = await import('../../logger.js')
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockRejectedValue(new Error('Connection refused'))
 
       const result = await collector.connect()
 
@@ -67,96 +78,19 @@ describe('DevModeServerCollector', () => {
       expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'))
     })
 
-    it('should return true when CDP connection succeeds', async () => {
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn(),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
+    it('should return true when CDPClient connects successfully', async () => {
       const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockResolvedValue([]),
+        close: vi.fn().mockResolvedValue(undefined),
       }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       const result = await collector.connect()
 
       expect(result).toBe(true)
-      expect(mockDebugger.enable).toHaveBeenCalled()
-      expect(mockProfiler.enable).toHaveBeenCalled()
-      expect(mockProfiler.startPreciseCoverage).toHaveBeenCalledWith({
-        callCount: true,
-        detailed: true,
-      })
-    })
-
-    it('should listen for scriptParsed events', async () => {
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn(),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
-      const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
-      }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
-
-      await collector.connect()
-
-      expect(mockDebugger.on).toHaveBeenCalledWith('scriptParsed', expect.any(Function))
-    })
-  })
-
-  describe('getProjectScripts', () => {
-    it('should return empty array when no scripts', () => {
-      const scripts = collector.getProjectScripts()
-      expect(scripts).toEqual([])
-    })
-
-    it('should filter project scripts', async () => {
-      let scriptParsedHandler: (params: { scriptId: string; url: string; sourceMapURL?: string }) => void
-
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn((event: string, handler: typeof scriptParsedHandler) => {
-          if (event === 'scriptParsed') {
-            scriptParsedHandler = handler
-          }
-        }),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
-      const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
-      }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
-
-      await collector.connect()
-
-      // Simulate script parsed events
-      scriptParsedHandler!({ scriptId: '1', url: 'webpack-internal:///(rsc)/./src/app/page.tsx' })
-      scriptParsedHandler!({ scriptId: '2', url: 'webpack-internal:///(app)/./node_modules/react.js' })
-      scriptParsedHandler!({ scriptId: '3', url: 'webpack-internal:///(rsc)/./src/lib/utils.ts' })
-
-      const scripts = collector.getProjectScripts()
-
-      // Should only include src scripts, not node_modules
-      expect(scripts.length).toBe(2)
-      expect(scripts[0].url).toContain('src/app/page.tsx')
-      expect(scripts[1].url).toContain('src/lib/utils.ts')
+      expect(mockClient.startJSCoverage).toHaveBeenCalled()
     })
   })
 
@@ -170,9 +104,24 @@ describe('DevModeServerCollector', () => {
       expect(log).toHaveBeenCalledWith(expect.stringContaining('CDP not connected'))
     })
 
-    it('should collect coverage for project scripts', async () => {
-      let scriptParsedHandler: (params: { scriptId: string; url: string; sourceMapURL?: string }) => void
+    it('should return empty array when stopJSCoverage returns null', async () => {
+      const { log } = await import('../../logger.js')
+      const mockClient = {
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockResolvedValue(null),
+        close: vi.fn().mockResolvedValue(undefined),
+      }
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
+      await collector.connect()
+      const result = await collector.collect()
+
+      expect(result).toEqual([])
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('No coverage entries returned'))
+    })
+
+    it('should collect coverage for project scripts', async () => {
       const sourceMap = {
         version: 3,
         file: 'page.tsx',
@@ -182,48 +131,37 @@ describe('DevModeServerCollector', () => {
         names: [],
       }
       const base64 = Buffer.from(JSON.stringify(sourceMap)).toString('base64')
-      const scriptSource = `function Page() {}//# sourceMappingURL=data:application/json,${base64}`
+      const scriptSource = `function Page() {}//# sourceMappingURL=data:application/json;charset=utf-8;base64,${base64}`
 
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        disable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn((event: string, handler: typeof scriptParsedHandler) => {
-          if (event === 'scriptParsed') {
-            scriptParsedHandler = handler
-          }
-        }),
-        getScriptSource: vi.fn().mockResolvedValue({ scriptSource }),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-        takePreciseCoverage: vi.fn().mockResolvedValue({
-          result: [
-            {
-              scriptId: '1',
-              functions: [
-                {
-                  functionName: 'Page',
-                  ranges: [{ startOffset: 0, endOffset: 20, count: 1 }],
-                  isBlockCoverage: true,
-                },
-              ],
-            },
-          ],
-        }),
-        stopPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
       const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockResolvedValue([
+          {
+            scriptId: '1',
+            url: 'webpack-internal:///(rsc)/./src/app/page.tsx',
+            source: scriptSource,
+            functions: [
+              {
+                functionName: 'Page',
+                ranges: [{ startOffset: 0, endOffset: 20, count: 1 }],
+                isBlockCoverage: true,
+              },
+            ],
+          },
+          // Non-project script should be filtered out
+          {
+            scriptId: '2',
+            url: 'node:internal/modules/cjs/loader',
+            source: 'module.exports = {}',
+            functions: [],
+          },
+        ]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
-      scriptParsedHandler!({ scriptId: '1', url: 'webpack-internal:///(rsc)/./src/app/page.tsx' })
-
       const result = await collector.collect()
 
       expect(result.length).toBe(1)
@@ -234,25 +172,46 @@ describe('DevModeServerCollector', () => {
       expect(result[0].originalPath).toBe('src/app/page.tsx')
     })
 
+    it('should handle scripts without source maps', async () => {
+      const mockClient = {
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockResolvedValue([
+          {
+            scriptId: '1',
+            url: 'webpack-internal:///(rsc)/./src/app/page.tsx',
+            source: 'function Page() {}', // No source map
+            functions: [
+              {
+                functionName: 'Page',
+                ranges: [{ startOffset: 0, endOffset: 20, count: 1 }],
+                isBlockCoverage: true,
+              },
+            ],
+          },
+        ]),
+        close: vi.fn().mockResolvedValue(undefined),
+      }
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
+
+      await collector.connect()
+      const result = await collector.collect()
+
+      expect(result.length).toBe(1)
+      expect(result[0].sourceMapData).toBeUndefined()
+      expect(result[0].originalPath).toBeUndefined()
+    })
+
     it('should handle collection errors gracefully', async () => {
       const { log } = await import('../../logger.js')
 
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn(),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-        takePreciseCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
-      }
       const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
       const result = await collector.collect()
@@ -261,96 +220,45 @@ describe('DevModeServerCollector', () => {
       expect(log).toHaveBeenCalledWith(expect.stringContaining('Failed to collect'))
     })
 
-    it('should handle getScriptSource errors for individual scripts', async () => {
-      let scriptParsedHandler: (params: { scriptId: string; url: string; sourceMapURL?: string }) => void
-
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        disable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn((event: string, handler: typeof scriptParsedHandler) => {
-          if (event === 'scriptParsed') {
-            scriptParsedHandler = handler
-          }
-        }),
-        getScriptSource: vi.fn().mockRejectedValue(new Error('Script not found')),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-        takePreciseCoverage: vi.fn().mockResolvedValue({
-          result: [
-            {
-              scriptId: '1',
-              functions: [{ functionName: 'test', ranges: [], isBlockCoverage: true }],
-            },
-          ],
-        }),
-        stopPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
+    it('should close client in finally block even on error', async () => {
       const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
-      scriptParsedHandler!({ scriptId: '1', url: 'webpack-internal:///(rsc)/./src/test.ts' })
+      await collector.collect()
 
-      const result = await collector.collect()
-
-      // Script with error should be filtered out
-      expect(result.length).toBe(0)
+      expect(mockClient.close).toHaveBeenCalled()
+      expect(collector['client']).toBeNull()
     })
   })
 
-  describe('extractScriptSourceMap', () => {
-    it('should return null when not connected', async () => {
-      const result = await collector.extractScriptSourceMap('1')
-      expect(result).toBeNull()
+  describe('isDevModeProcess', () => {
+    it('should return true (always assumes dev mode)', () => {
+      expect(collector.isDevModeProcess()).toBe(true)
     })
+  })
 
-    it('should return null for non-existent script', async () => {
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn(),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
-      const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
-      }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
-
-      await collector.connect()
-      const result = await collector.extractScriptSourceMap('non-existent')
-
-      expect(result).toBeNull()
+  describe('waitForWebpackScripts', () => {
+    it('should return true immediately (no-op in new implementation)', async () => {
+      const result = await collector.waitForWebpackScripts()
+      expect(result).toBe(true)
     })
   })
 
   describe('close', () => {
     it('should close CDP connection', async () => {
-      const mockDebugger = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn(),
-      }
-      const mockProfiler = {
-        enable: vi.fn().mockResolvedValue(undefined),
-        startPreciseCoverage: vi.fn().mockResolvedValue(undefined),
-      }
       const mockClient = {
-        Debugger: mockDebugger,
-        Profiler: mockProfiler,
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockResolvedValue([]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const CDP = (await import('chrome-remote-interface')).default
-      vi.mocked(CDP).mockResolvedValue(mockClient as any)
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
       await collector.close()
@@ -362,6 +270,24 @@ describe('DevModeServerCollector', () => {
     it('should handle close when not connected', async () => {
       // Should not throw
       await collector.close()
+      expect(collector['client']).toBeNull()
+    })
+  })
+
+  describe('disconnect', () => {
+    it('should be an alias for close', async () => {
+      const mockClient = {
+        startJSCoverage: vi.fn().mockResolvedValue(undefined),
+        stopJSCoverage: vi.fn().mockResolvedValue([]),
+        close: vi.fn().mockResolvedValue(undefined),
+      }
+      const { CDPClient } = await import('monocart-coverage-reports')
+      vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
+
+      await collector.connect()
+      await collector.disconnect()
+
+      expect(mockClient.close).toHaveBeenCalled()
       expect(collector['client']).toBeNull()
     })
   })
