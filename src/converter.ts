@@ -7,8 +7,8 @@
 
 import { existsSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
-import { parse } from 'acorn'
 import { parse as babelParse } from '@babel/parser'
+import { parseAstAsync } from 'vite'
 import astV8ToIstanbul from 'ast-v8-to-istanbul'
 import libCoverage from 'istanbul-lib-coverage'
 import libSourceMaps from 'istanbul-lib-source-maps'
@@ -16,8 +16,81 @@ import { decode, encode, type SourceMapMappings } from '@jridgewell/sourcemap-co
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
 import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, SourceMapData, SourceFilter } from './types.js'
 import { SourceMapLoader } from './sourcemap-loader.js'
-import { log } from './logger.js'
+import { log, createTimer } from './logger.js'
 import { normalizePath } from './config.js'
+
+/**
+ * Normalize URL for merging by stripping query parameters.
+ *
+ * In dev mode, Next.js appends version timestamps like `?v=1765765839055`
+ * to chunk URLs. These are the same file content, just different cache busters.
+ * We strip these to merge coverage from the same underlying file.
+ */
+function normalizeUrlForMerge(url: string): string {
+  // Strip query parameters (e.g., ?v=1765765839055)
+  const queryIndex = url.indexOf('?')
+  return queryIndex === -1 ? url : url.substring(0, queryIndex)
+}
+
+/**
+ * Merge V8 coverage entries by URL using SUM strategy.
+ *
+ * When the same chunk is visited by multiple tests, we SUM execution counts
+ * to get total coverage across all tests. This matches how Vitest merges
+ * coverage (though Vitest uses @bcoe/v8-coverage which we can't use due to
+ * its normalization changing function structures).
+ *
+ * For coverage reporting (covered vs uncovered), SUM and MAX produce identical
+ * results since both preserve non-zero counts. SUM gives more accurate execution
+ * counts if you need them for profiling.
+ *
+ * URLs are normalized by stripping query parameters (e.g., ?v=xxxxx) so that
+ * dev mode cache-busted URLs are merged correctly.
+ *
+ * This significantly reduces processing time by converting 400 entries → ~30 unique entries.
+ */
+export function mergeV8CoverageByUrl(entries: V8ScriptCoverage[]): V8ScriptCoverage[] {
+  const endTimer = createTimer(`mergeV8CoverageByUrl (${entries.length} entries)`)
+  const merged = new Map<string, V8ScriptCoverage>()
+
+  for (const entry of entries) {
+    const normalizedUrl = normalizeUrlForMerge(entry.url)
+    const existing = merged.get(normalizedUrl)
+
+    if (!existing) {
+      // First time seeing this URL - deep clone it
+      // Use normalized URL as both the key and the stored URL
+      merged.set(normalizedUrl, {
+        scriptId: entry.scriptId,
+        url: normalizedUrl,
+        source: entry.source,
+        functions: entry.functions.map(fn => ({
+          functionName: fn.functionName,
+          isBlockCoverage: fn.isBlockCoverage,
+          ranges: fn.ranges.map(r => ({ ...r })),
+        })),
+      })
+      continue
+    }
+
+    // Same URL - merge coverage counts using SUM
+    // The source and function structure are identical (same webpack bundle)
+    for (let i = 0; i < entry.functions.length && i < existing.functions.length; i++) {
+      const existingFn = existing.functions[i]
+      const newFn = entry.functions[i]
+
+      // Sum counts for each range
+      for (let j = 0; j < newFn.ranges.length && j < existingFn.ranges.length; j++) {
+        existingFn.ranges[j].count += newFn.ranges[j].count
+      }
+    }
+  }
+
+  const result = Array.from(merged.values())
+  log(`  ✓ Merged ${entries.length} entries → ${result.length} unique URLs`)
+  endTimer()
+  return result
+}
 
 export class CoverageConverter {
   private sourceMapLoader: SourceMapLoader
@@ -48,6 +121,7 @@ export class CoverageConverter {
    * Convert V8 coverage to Istanbul coverage map
    */
   async convert(coverage: V8Coverage): Promise<CoverageMap> {
+    const endConvert = createTimer('convert (total)')
     const coverageMap = libCoverage.createCoverageMap({})
 
     // Load source maps from V8 cache if available
@@ -59,25 +133,52 @@ export class CoverageConverter {
     const failReasons: Record<string, number> = {}
     const skippedUrls = new Map<string, number>()
 
-    // Process each script coverage entry
-    for (const entry of coverage.result) {
-      try {
-        const istanbulCoverage = await this.convertEntry(entry)
-        if (istanbulCoverage && Object.keys(istanbulCoverage).length > 0) {
-          coverageMap.merge(istanbulCoverage)
+    // Merge V8 coverage entries by URL before conversion
+    // This prevents coverage loss when the same URL appears multiple times
+    // (from parallel test workers or multiple page visits)
+    const mergedEntries = mergeV8CoverageByUrl(coverage.result)
+
+    // Process entries in parallel batches for better performance
+    const endEntries = createTimer(`convertEntries (${mergedEntries.length} entries)`)
+    const BATCH_SIZE = 20
+    const entries = mergedEntries
+
+    // Debug: List all entry URLs (now de-duplicated)
+    log(`  Debug: All ${entries.length} unique entry URLs:`)
+    entries.forEach((entry, i) => log(`    [${i + 1}] ${entry.url}`))
+
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE)
+      const results = await Promise.all(
+        batch.map(async (entry) => {
+          try {
+            const istanbulCoverage = await this.convertEntry(entry)
+            return { success: true, coverage: istanbulCoverage, entry }
+          } catch (error) {
+            return { success: false, error, entry }
+          }
+        })
+      )
+
+      // Merge results sequentially (coverageMap.merge is not thread-safe)
+      for (const result of results) {
+        if (result.success && result.coverage && Object.keys(result.coverage).length > 0) {
+          coverageMap.merge(result.coverage)
+
           successCount++
         } else {
           failCount++
-          failReasons['skipped (no source map or not in src/)'] = (failReasons['skipped (no source map or not in src/)'] || 0) + 1
-          skippedUrls.set(entry.url, (skippedUrls.get(entry.url) || 0) + 1)
+          if (!result.success && result.error) {
+            const reason = result.error instanceof Error ? result.error.message.substring(0, 50) : 'unknown'
+            failReasons[reason] = (failReasons[reason] || 0) + 1
+          } else {
+            failReasons['skipped (no source map or not in src/)'] = (failReasons['skipped (no source map or not in src/)'] || 0) + 1
+          }
+          skippedUrls.set(result.entry.url, (skippedUrls.get(result.entry.url) || 0) + 1)
         }
-      } catch (error) {
-        failCount++
-        const reason = error instanceof Error ? error.message.substring(0, 50) : 'unknown'
-        failReasons[reason] = (failReasons[reason] || 0) + 1
-        skippedUrls.set(entry.url, (skippedUrls.get(entry.url) || 0) + 1)
       }
     }
+    endEntries()
 
     log(`  Debug: Converted ${successCount} entries, failed ${failCount}`)
     if (failCount > 0 && Object.keys(failReasons).length > 0) {
@@ -119,6 +220,7 @@ export class CoverageConverter {
     // which causes V8 to not properly track function declaration coverage
     this.fixFunctionDeclarationStatements(normalizedMap)
 
+    endConvert()
     return normalizedMap
   }
 
@@ -128,9 +230,31 @@ export class CoverageConverter {
    * loses statement boundaries. We re-parse the original source to get proper statements.
    */
   private async fixEmptyStatementMaps(coverageMap: CoverageMap): Promise<void> {
+    const endTimer = createTimer('fixEmptyStatementMaps')
     const { promises: fs } = await import('node:fs')
 
-    for (const filePath of coverageMap.files()) {
+    const files = coverageMap.files()
+
+    // Pre-analyze which files need source code
+    const filesToRead: string[] = []
+    const fileAnalysis = new Map<string, {
+      data: {
+        path: string
+        statementMap: Record<string, unknown>
+        branchMap: Record<string, unknown>
+        fnMap: Record<string, unknown>
+        s: Record<string, number>
+        b: Record<string, number[]>
+        f: Record<string, number>
+      }
+      hasStatements: boolean
+      hasBranches: boolean
+      hasFunctions: boolean
+      anyFunctionExecuted: boolean
+      needsSourceRead: boolean
+    }>()
+
+    for (const filePath of files) {
       const fileCoverage = coverageMap.fileCoverageFor(filePath)
       const data = fileCoverage.toJSON() as {
         path: string
@@ -142,19 +266,65 @@ export class CoverageConverter {
         f: Record<string, number>
       }
 
-      // Check if this file has functions but missing statements or branches
       const hasStatements = Object.keys(data.statementMap).length > 0
       const hasBranches = Object.keys(data.branchMap).length > 0
       const hasFunctions = Object.keys(data.fnMap).length > 0
-
-      // Check if any function was executed (indicates module was loaded)
       const anyFunctionExecuted = Object.values(data.f).some((count) => count > 0)
+
+      // Determine if we need to read this file's source
+      const needsSourceRead =
+        (hasFunctions && (!hasStatements || !hasBranches)) ||
+        (!hasFunctions && !hasBranches && !hasStatements)
+
+      if (needsSourceRead) {
+        filesToRead.push(filePath)
+      }
+
+      fileAnalysis.set(filePath, {
+        data,
+        hasStatements,
+        hasBranches,
+        hasFunctions,
+        anyFunctionExecuted,
+        needsSourceRead,
+      })
+    }
+
+    // Batch read all source files in parallel
+    const sourceCache = new Map<string, string>()
+    if (filesToRead.length > 0) {
+      const BATCH_SIZE = 50
+      for (let i = 0; i < filesToRead.length; i += BATCH_SIZE) {
+        const batch = filesToRead.slice(i, i + BATCH_SIZE)
+        const results = await Promise.all(
+          batch.map(async (filePath) => {
+            try {
+              const content = await fs.readFile(filePath, 'utf-8')
+              return { filePath, content }
+            } catch {
+              return { filePath, content: null }
+            }
+          })
+        )
+        for (const { filePath, content } of results) {
+          if (content !== null) {
+            sourceCache.set(filePath, content)
+          }
+        }
+      }
+    }
+
+    // Now process each file using cached sources
+    for (const filePath of files) {
+      const analysis = fileAnalysis.get(filePath)!
+      const { data, hasStatements, hasBranches, hasFunctions, anyFunctionExecuted } = analysis
 
       // If function was executed but statements or branches are missing, re-parse original source
       if (hasFunctions && (!hasStatements || !hasBranches)) {
+        const sourceCode = sourceCache.get(filePath)
+        if (!sourceCode) continue
+
         try {
-          // Read the original source file
-          const sourceCode = await fs.readFile(filePath, 'utf-8')
 
           // Re-generate coverage with proper statement/branch maps using Babel
           const fixedCoverage = await this.createEmptyCoverage(filePath, sourceCode)
@@ -226,21 +396,23 @@ export class CoverageConverter {
 
         // For completely empty files (no statements either), try to re-parse
         if (!hasStatements) {
-          try {
-            const sourceCode = await fs.readFile(filePath, 'utf-8')
-            const fixedCoverage = await this.createEmptyCoverage(filePath, sourceCode)
-            if (fixedCoverage && fixedCoverage[filePath]) {
-              const fixed = fixedCoverage[filePath] as {
-                statementMap: Record<string, unknown>
-                s: Record<string, number>
+          const sourceCode = sourceCache.get(filePath)
+          if (sourceCode) {
+            try {
+              const fixedCoverage = await this.createEmptyCoverage(filePath, sourceCode)
+              if (fixedCoverage && fixedCoverage[filePath]) {
+                const fixed = fixedCoverage[filePath] as {
+                  statementMap: Record<string, unknown>
+                  s: Record<string, number>
+                }
+                data.statementMap = fixed.statementMap
+                for (const stmtId of Object.keys(fixed.s)) {
+                  data.s[stmtId] = 0 // Mark as uncovered
+                }
               }
-              data.statementMap = fixed.statementMap
-              for (const stmtId of Object.keys(fixed.s)) {
-                data.s[stmtId] = 0 // Mark as uncovered
-              }
+            } catch (error) {
+              log(`  Skipping file ${filePath}: ${error instanceof Error ? error.message : 'unknown error'}`)
             }
-          } catch (error) {
-            log(`  Skipping file ${filePath}: ${error instanceof Error ? error.message : 'unknown error'}`)
           }
         }
 
@@ -255,6 +427,7 @@ export class CoverageConverter {
         data.b['0'] = anyStatementCovered ? [1] : [0]
       }
     }
+    endTimer()
   }
 
   /**
@@ -269,38 +442,75 @@ export class CoverageConverter {
    * we remove the branch.
    */
   private async fixSpuriousBranches(coverageMap: CoverageMap): Promise<void> {
+    const endTimer = createTimer('fixSpuriousBranches')
     const { promises: fs } = await import('node:fs')
 
-    for (const filePath of coverageMap.files()) {
+    const files = coverageMap.files()
+
+    // Pre-analyze which files need source code (have binary-expr branches)
+    type BranchData = {
+      path: string
+      branchMap: Record<
+        string,
+        {
+          type: string
+          loc: { start: { line: number; column: number }; end: { line: number; column: number | null } }
+          locations: Array<{
+            start: { line: number; column: number }
+            end: { line: number; column: number | null }
+          }>
+          line?: number
+        }
+      >
+      b: Record<string, number[]>
+    }
+    const filesToRead: string[] = []
+    const fileDataMap = new Map<string, BranchData>()
+
+    for (const filePath of files) {
       const fileCoverage = coverageMap.fileCoverageFor(filePath)
-      const data = fileCoverage.toJSON() as {
-        path: string
-        branchMap: Record<
-          string,
-          {
-            type: string
-            loc: { start: { line: number; column: number }; end: { line: number; column: number | null } }
-            locations: Array<{
-              start: { line: number; column: number }
-              end: { line: number; column: number | null }
-            }>
-            line?: number
-          }
-        >
-        b: Record<string, number[]>
-      }
+      const data = fileCoverage.toJSON() as BranchData
 
       const branchCount = Object.keys(data.branchMap).length
       if (branchCount === 0) continue
 
-      // Read the original source file
-      let sourceCode: string
-      try {
-        sourceCode = await fs.readFile(filePath, 'utf-8')
-      } catch (error) {
-        log(`  Skipping file ${filePath}: ${error instanceof Error ? error.message : 'unknown error'}`)
-        continue
+      // Check if file has any binary-expr branches
+      const hasBinaryExprBranch = Object.values(data.branchMap).some(b => b.type === 'binary-expr')
+      if (hasBinaryExprBranch) {
+        filesToRead.push(filePath)
+        fileDataMap.set(filePath, data)
       }
+    }
+
+    // Batch read all needed source files in parallel
+    const sourceCache = new Map<string, string>()
+    if (filesToRead.length > 0) {
+      const BATCH_SIZE = 50
+      for (let i = 0; i < filesToRead.length; i += BATCH_SIZE) {
+        const batch = filesToRead.slice(i, i + BATCH_SIZE)
+        const results = await Promise.all(
+          batch.map(async (filePath) => {
+            try {
+              const content = await fs.readFile(filePath, 'utf-8')
+              return { filePath, content }
+            } catch {
+              return { filePath, content: null }
+            }
+          })
+        )
+        for (const { filePath, content } of results) {
+          if (content !== null) {
+            sourceCache.set(filePath, content)
+          }
+        }
+      }
+    }
+
+    // Process each file using cached sources
+    for (const filePath of filesToRead) {
+      const data = fileDataMap.get(filePath)!
+      const sourceCode = sourceCache.get(filePath)
+      if (!sourceCode) continue
 
       // Parse the original source to find real logical expressions
       const realLogicalExprLines = this.findLogicalExpressionLines(sourceCode, filePath)
@@ -347,6 +557,7 @@ export class CoverageConverter {
         coverageMap.addFileCoverage(data as CoverageMapData[string])
       }
     }
+    endTimer()
   }
 
   /**
@@ -624,18 +835,11 @@ export class CoverageConverter {
     // Convert the URL to a proper file path for the coverage data
     const coverageUrl = filePath ? this.toFileUrl(filePath) : url
 
-    // Parse AST
+    // Parse AST using Vite's fast Rollup-based parser
+    // This works because the code here is already bundled JavaScript (not TypeScript)
     let ast
     try {
-      ast = parse(code, {
-        ecmaVersion: 'latest',
-        sourceType: 'module',
-        allowHashBang: true,
-        allowAwaitOutsideFunction: true,
-        allowImportExportEverywhere: true,
-        allowReserved: true,
-        locations: true,
-      })
+      ast = await parseAstAsync(code)
     } catch {
       // Debug: AST parse failed
       if (process.env.DEBUG_COVERAGE) {
@@ -953,36 +1157,56 @@ export class CoverageConverter {
     coverageMap: CoverageMap,
     sourceFiles: string[]
   ): Promise<CoverageMap> {
+    const endTimer = createTimer(`addUncoveredFiles (${sourceFiles.length} files)`)
     // Normalize paths to forward slashes for cross-platform comparison
     const coveredFiles = new Set(coverageMap.files().map(normalizePath))
 
-    for (const filePath of sourceFiles) {
-      if (coveredFiles.has(normalizePath(filePath))) continue
+    // Filter to only uncovered files
+    const uncoveredFiles = sourceFiles.filter(
+      (filePath) => !coveredFiles.has(normalizePath(filePath))
+    )
 
-      // Note: We don't apply the source filter here because:
-      // 1. The sourceFiles list was already filtered by glob with include/exclude patterns
-      // 2. The source filter was designed for relative paths from source maps
-      // 3. Absolute paths would fail the pattern match (e.g., C:/Users/.../src/file.ts vs src/**/*.ts)
+    if (uncoveredFiles.length === 0) {
+      endTimer()
+      return coverageMap
+    }
 
-      try {
-        // Convert to proper file:// URL for loading
-        const fileUrl = this.toFileUrl(filePath)
-        const sourceFile = await this.sourceMapLoader.loadSource(fileUrl)
-        if (!sourceFile) {
-          console.warn(`  ⚠️ Could not load source for uncovered file: ${filePath}`)
-          continue
-        }
+    // Note: We don't apply the source filter here because:
+    // 1. The sourceFiles list was already filtered by glob with include/exclude patterns
+    // 2. The source filter was designed for relative paths from source maps
+    // 3. Absolute paths would fail the pattern match (e.g., C:/Users/.../src/file.ts vs src/**/*.ts)
 
-        // Create empty coverage for the file
-        const emptyCoverage = await this.createEmptyCoverage(filePath, sourceFile.code)
+    // Process uncovered files in parallel batches
+    const BATCH_SIZE = 20
+    for (let i = 0; i < uncoveredFiles.length; i += BATCH_SIZE) {
+      const batch = uncoveredFiles.slice(i, i + BATCH_SIZE)
+      const results = await Promise.all(
+        batch.map(async (filePath) => {
+          try {
+            // Convert to proper file:// URL for loading
+            const fileUrl = this.toFileUrl(filePath)
+            const sourceFile = await this.sourceMapLoader.loadSource(fileUrl)
+            if (!sourceFile) {
+              return null
+            }
+
+            // Create empty coverage for the file
+            return await this.createEmptyCoverage(filePath, sourceFile.code)
+          } catch {
+            return null
+          }
+        })
+      )
+
+      // Merge results sequentially
+      for (const emptyCoverage of results) {
         if (emptyCoverage) {
           coverageMap.merge(emptyCoverage)
         }
-      } catch (error) {
-        console.warn(`Failed to add uncovered file ${filePath}:`, error)
       }
     }
 
+    endTimer()
     return coverageMap
   }
 

@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3] - 2024-12-15
+
+### Added
+
+- **V8 coverage merge optimization** - Merge duplicate V8 coverage entries by URL before conversion
+  - Uses SUM strategy to accumulate execution counts across test runs
+  - Normalizes URLs by stripping query parameters (`?v=xxxxx`) for dev mode cache-busted chunks
+  - Reduces ~400 entries → ~60 unique entries in dev mode, ~178 → ~33 in production
+  - ~12% faster conversion, more accurate coverage
+- **Performance timing config** - New `timing: true` option to show only performance metrics without verbose debug output
+- **`createTimer()` utility** - Simple timer for measuring performance of coverage operations
+
+### Changed
+
+- **Replaced `acorn` with Vite's `parseAstAsync`** - Better TSX/JSX support and tree-shaking
+- **Regex patterns use dynamic construction** - Source map regex patterns in `constants.ts` are now built dynamically to avoid Vite's source map scanner detecting them as actual source maps (Windows Vite bug)
+
+### Removed
+
+- **Removed `acorn` dependency** - Replaced with Vite's built-in parser
+
 ## [0.6.2] - 2024-12-13
 
 ### Changed

@@ -6,7 +6,9 @@ import type { Page, TestInfo } from '@playwright/test'
 vi.mock('../../logger.js', () => ({
   log: vi.fn(),
   setLogging: vi.fn(),
+  setTiming: vi.fn(),
   isLoggingEnabled: vi.fn().mockReturnValue(false),
+  isTimingEnabled: vi.fn().mockReturnValue(false),
   warn: vi.fn(),
   error: vi.fn(),
 }))

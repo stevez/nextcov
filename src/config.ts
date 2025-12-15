@@ -100,6 +100,13 @@ export interface NextcovConfig {
    * When true, shows detailed progress logs during coverage collection.
    */
   log?: boolean
+
+  /**
+   * Enable timing logs (default: false)
+   * When true, shows only performance timing information without verbose debug output.
+   * This is useful for profiling coverage processing without the noise of debug logs.
+   */
+  timing?: boolean
 }
 
 /**
@@ -140,6 +147,7 @@ export interface ResolvedNextcovConfig {
   reporters: ReporterType[]
   devMode: ResolvedDevModeOptions
   log: boolean
+  timing: boolean
 }
 
 const DEFAULT_OUTPUT_DIR = 'coverage/e2e'
@@ -176,6 +184,7 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
   reporters: DEFAULT_REPORTERS,
   devMode: DEFAULT_DEV_MODE_OPTIONS,
   log: false,
+  timing: false,
 }
 
 /**
@@ -241,6 +250,7 @@ export function resolveNextcovConfig(config?: NextcovConfig, playwrightBaseUrl?:
     reporters: config?.reporters ?? DEFAULT_NEXTCOV_CONFIG.reporters,
     devMode: resolveDevModeOptions(config?.devMode, cdpPort, playwrightBaseUrl),
     log: config?.log ?? DEFAULT_NEXTCOV_CONFIG.log,
+    timing: config?.timing ?? DEFAULT_NEXTCOV_CONFIG.timing,
   }
 }
 
