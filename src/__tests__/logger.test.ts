@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { log, warn, error, setLogging, isLoggingEnabled } from '../logger.js'
+import { log, warn, error, setLogging, isLoggingEnabled, setTiming, isTimingEnabled, createTimer } from '../logger.js'
 
 describe('logger', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    // Reset logging state before each test
+    // Reset logging and timing state before each test
     setLogging(false)
+    setTiming(false)
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
@@ -104,6 +105,72 @@ describe('logger', () => {
     it('should pass multiple arguments to console.error', () => {
       error('error', new Error('test'), { context: 'info' })
       expect(consoleErrorSpy).toHaveBeenCalledWith('error', expect.any(Error), { context: 'info' })
+    })
+  })
+
+  describe('setTiming', () => {
+    it('should enable timing when set to true', () => {
+      setTiming(true)
+      expect(isTimingEnabled()).toBe(true)
+    })
+
+    it('should disable timing when set to false', () => {
+      setTiming(true)
+      setTiming(false)
+      expect(isTimingEnabled()).toBe(false)
+    })
+  })
+
+  describe('isTimingEnabled', () => {
+    it('should return false by default', () => {
+      setTiming(false)
+      expect(isTimingEnabled()).toBe(false)
+    })
+
+    it('should return true after enabling', () => {
+      setTiming(true)
+      expect(isTimingEnabled()).toBe(true)
+    })
+  })
+
+  describe('createTimer', () => {
+    it('should not log when both logging and timing are disabled', () => {
+      setLogging(false)
+      setTiming(false)
+      const endTimer = createTimer('test')
+      endTimer()
+      expect(consoleLogSpy).not.toHaveBeenCalled()
+    })
+
+    it('should log when logging is enabled', () => {
+      setLogging(true)
+      setTiming(false)
+      const endTimer = createTimer('test operation')
+      endTimer()
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('⏱ test operation:'))
+    })
+
+    it('should log when timing is enabled but logging is disabled', () => {
+      setLogging(false)
+      setTiming(true)
+      const endTimer = createTimer('test operation')
+      endTimer()
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('⏱ test operation:'))
+    })
+
+    it('should log when both logging and timing are enabled', () => {
+      setLogging(true)
+      setTiming(true)
+      const endTimer = createTimer('test operation')
+      endTimer()
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('⏱ test operation:'))
+    })
+
+    it('should include duration in ms', () => {
+      setTiming(true)
+      const endTimer = createTimer('test')
+      endTimer()
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/⏱ test: \d+ms/))
     })
   })
 })

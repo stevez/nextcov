@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
 import { isNextChunksUrl } from '../constants.js'
-import { log } from '../logger.js'
+import { log, createTimer } from '../logger.js'
 
 export interface PlaywrightCoverageEntry {
   url: string
@@ -79,22 +79,36 @@ export class ClientCoverageCollector {
       return []
     }
 
+    const endTimer = createTimer(`readClientCoverage (${coverageFiles.length} files)`)
     log(`  Reading ${coverageFiles.length} client coverage file(s)...`)
 
+    // Read all files in parallel for better performance
+    const BATCH_SIZE = 50
     const allCoverage: PlaywrightCoverageEntry[] = []
 
-    for (const file of coverageFiles) {
-      try {
-        const content = await fs.readFile(join(this.config.cacheDir, file), 'utf-8')
-        const data = JSON.parse(content)
-        if (data.result && Array.isArray(data.result)) {
-          allCoverage.push(...data.result)
-        }
-      } catch (error) {
-        log(`  Skipping invalid coverage file ${file}: ${error instanceof Error ? error.message : 'unknown error'}`)
+    for (let i = 0; i < coverageFiles.length; i += BATCH_SIZE) {
+      const batch = coverageFiles.slice(i, i + BATCH_SIZE)
+      const results = await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const content = await fs.readFile(join(this.config.cacheDir, file), 'utf-8')
+            const data = JSON.parse(content)
+            if (data.result && Array.isArray(data.result)) {
+              return data.result as PlaywrightCoverageEntry[]
+            }
+          } catch (error) {
+            log(`  Skipping invalid coverage file ${file}: ${error instanceof Error ? error.message : 'unknown error'}`)
+          }
+          return []
+        })
+      )
+
+      for (const entries of results) {
+        allCoverage.push(...entries)
       }
     }
 
+    endTimer()
     return allCoverage
   }
 

@@ -30,7 +30,7 @@ import {
   type DevServerCoverageEntry,
   type V8ServerCoverageEntry,
 } from '../collector/index.js'
-import { log, setLogging } from '../logger.js'
+import { log, setLogging, setTiming } from '../logger.js'
 
 /**
  * Module-level state for persisting between globalSetup and globalTeardown.
@@ -132,8 +132,9 @@ export async function startServerCoverage(
     ? config as ResolvedNextcovConfig
     : resolveNextcovConfig(config)
 
-  // Initialize logging from config
+  // Initialize logging and timing from config
   setLogging(resolved.log)
+  setTiming(resolved.timing)
 
   // Auto-detect dev mode vs production mode:
   // - Dev mode: next dev --inspect=9230 spawns worker on port 9231 (inspect port + 1)

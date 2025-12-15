@@ -699,15 +699,15 @@ describe('CoverageConverter', () => {
   })
 
   describe('addUncoveredFiles - error handling', () => {
-    it('should warn when source cannot be loaded', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    it('should skip files that cannot be loaded without adding to coverage', async () => {
       const libCoverage = require('istanbul-lib-coverage')
       const coverageMap = libCoverage.createCoverageMap({})
 
+      // Try to add a non-existent file - should silently skip
       await converter.addUncoveredFiles(coverageMap, ['/non/existent/file.ts'])
 
-      expect(consoleSpy).toHaveBeenCalled()
-      consoleSpy.mockRestore()
+      // Coverage map should remain empty (file was skipped)
+      expect(coverageMap.files().length).toBe(0)
     })
   })
 
@@ -1026,15 +1026,14 @@ describe('CoverageConverter', () => {
     })
 
     it('should handle errors gracefully', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const libCoverage = require('istanbul-lib-coverage')
       const coverageMap = libCoverage.createCoverageMap({})
 
-      // Try to add a non-existent file
+      // Try to add a non-existent file - should silently skip without throwing
       await testConverter.addUncoveredFiles(coverageMap, ['/non/existent/file.ts'])
 
-      expect(consoleSpy).toHaveBeenCalled()
-      consoleSpy.mockRestore()
+      // Coverage map should remain empty (file was skipped)
+      expect(coverageMap.files().length).toBe(0)
     })
   })
 
