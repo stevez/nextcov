@@ -48,7 +48,12 @@ export class CoverageProcessor {
       projectRoot,
       this.options.nextBuildDir ? join(projectRoot, this.options.nextBuildDir) : undefined
     )
-    this.converter = new CoverageConverter(projectRoot, this.sourceMapLoader)
+    this.converter = new CoverageConverter(
+      projectRoot,
+      this.sourceMapLoader,
+      undefined, // sourceFilter
+      this.options.exclude || [] // excludePatterns for smart bundle skipping
+    )
     this.reporter = new IstanbulReporter({
       outputDir: resolve(projectRoot, this.options.outputDir),
       projectRoot,

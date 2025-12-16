@@ -18,6 +18,8 @@ import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, SourceMapDa
 import { SourceMapLoader } from './sourcemap-loader.js'
 import { log, createTimer } from './logger.js'
 import { normalizePath } from './config.js'
+import { getWorkerPool } from './worker-pool.js'
+import { FILE_PROTOCOL, LARGE_BUNDLE_THRESHOLD, HEAVY_ENTRY_THRESHOLD, ENTRY_BATCH_SIZE, FILE_READ_BATCH_SIZE } from './constants.js'
 
 /**
  * Normalize URL for merging by stripping query parameters.
@@ -97,11 +99,38 @@ export class CoverageConverter {
   private sourceFilter?: SourceFilter
   private projectRoot: string
   private fileExistsCache: Map<string, boolean> = new Map()
+  private excludePatterns: string[]
 
-  constructor(projectRoot: string, sourceMapLoader: SourceMapLoader, sourceFilter?: SourceFilter) {
+  constructor(projectRoot: string, sourceMapLoader: SourceMapLoader, sourceFilter?: SourceFilter, excludePatterns: string[] = []) {
     this.projectRoot = projectRoot
     this.sourceMapLoader = sourceMapLoader
     this.sourceFilter = sourceFilter
+    this.excludePatterns = excludePatterns
+  }
+
+  /**
+   * Check if a source path matches any exclude pattern.
+   * Used to skip processing bundles that only contain excluded files.
+   */
+  private isSourceExcluded(sourcePath: string): boolean {
+    if (this.excludePatterns.length === 0) return false
+
+    // Normalize to forward slashes for matching
+    const normalized = sourcePath.replace(/\\/g, '/')
+
+    return this.excludePatterns.some(pattern => {
+      // Simple pattern matching - support basic glob patterns
+      // Convert glob pattern to regex: ** -> .*, * -> [^/]*, ? -> .
+      const regexPattern = pattern
+        .replace(/\\/g, '/')
+        .replace(/\*\*/g, '{{DOUBLESTAR}}')
+        .replace(/\*/g, '[^/]*')
+        .replace(/\?/g, '.')
+        .replace(/\{\{DOUBLESTAR\}\}/g, '.*')
+
+      const regex = new RegExp(regexPattern)
+      return regex.test(normalized)
+    })
   }
 
   /**
@@ -138,17 +167,156 @@ export class CoverageConverter {
     // (from parallel test workers or multiple page visits)
     const mergedEntries = mergeV8CoverageByUrl(coverage.result)
 
-    // Process entries in parallel batches for better performance
-    const endEntries = createTimer(`convertEntries (${mergedEntries.length} entries)`)
-    const BATCH_SIZE = 20
-    const entries = mergedEntries
+    // Pre-scan phase: Identify which sources each bundle provides
+    // This allows us to skip bundles that only contain sources already provided by other bundles
+    const bundleSources = new Map<string, Set<string>>() // url -> set of valid source paths
+    const allSourcesToBundles = new Map<string, string[]>() // source path -> urls providing it
+
+    for (const entry of mergedEntries) {
+      const sourceMap = await this.sourceMapLoader.loadSourceMap(entry.url)
+      if (!sourceMap?.sources) continue
+
+      const validSources = new Set<string>()
+      for (let i = 0; i < sourceMap.sources.length; i++) {
+        const source = sourceMap.sources[i]
+        const content = sourceMap.sourcesContent?.[i]
+        const reason = this.getSourceRejectionReason(source, content)
+        if (!reason) {
+          const normalized = this.sourceMapLoader.normalizeSourcePath(source)
+          if (normalized && !this.isSourceExcluded(normalized)) {
+            validSources.add(normalized)
+            const bundles = allSourcesToBundles.get(normalized) || []
+            bundles.push(entry.url)
+            allSourcesToBundles.set(normalized, bundles)
+          }
+        }
+      }
+      bundleSources.set(entry.url, validSources)
+    }
+
+    // Determine which bundles to skip: those where ALL sources are provided by other bundles
+    // Also skip very large server bundles if most sources are redundant (performance optimization)
+    const bundlesToSkip = new Set<string>()
+
+    // First pass: identify fully redundant bundles
+    for (const [url, sources] of bundleSources) {
+      if (sources.size === 0) continue // Already handled by sanitizeSourceMap
+
+      const allSourcesRedundant = Array.from(sources).every(source => {
+        const providingBundles = allSourcesToBundles.get(source) || []
+        // Source is redundant if provided by another bundle that we won't skip
+        return providingBundles.some(otherUrl => otherUrl !== url && !bundlesToSkip.has(otherUrl))
+      })
+
+      if (allSourcesRedundant) {
+        bundlesToSkip.add(url)
+        log(`  ⏭️ Skipping redundant bundle: ${url.split('/').pop()}`)
+        log(`    All ${sources.size} sources provided by other bundles`)
+      }
+    }
+
+    // Second pass: skip large server bundles where MOST sources are redundant
+    // This is a performance optimization - we trade some coverage accuracy for speed
+    // The client bundle usually provides the same page coverage
+    for (const entry of mergedEntries) {
+      if (bundlesToSkip.has(entry.url)) continue
+
+      // Only consider server bundles (file:// URLs)
+      if (!entry.url.startsWith(FILE_PROTOCOL)) continue
+
+      // Check bundle size from source
+      const sourceLen = entry.source?.length || 0
+      if (sourceLen < LARGE_BUNDLE_THRESHOLD) continue
+
+      const sources = bundleSources.get(entry.url)
+      if (!sources || sources.size === 0) continue
+
+      // Count redundant sources
+      let redundantCount = 0
+      for (const source of sources) {
+        const providingBundles = allSourcesToBundles.get(source) || []
+        const isRedundant = providingBundles.some(otherUrl =>
+          otherUrl !== entry.url && !bundlesToSkip.has(otherUrl)
+        )
+        if (isRedundant) redundantCount++
+      }
+
+      // Skip if >80% of sources are redundant (covered elsewhere)
+      const redundantRatio = redundantCount / sources.size
+      if (redundantRatio >= 0.8) {
+        bundlesToSkip.add(entry.url)
+        const bundleName = entry.url.split('/').pop()
+        log(`  ⏭️ Skipping large server bundle (${(sourceLen / 1024).toFixed(0)}KB): ${bundleName}`)
+        log(`    ${redundantCount}/${sources.size} sources (${(redundantRatio * 100).toFixed(0)}%) covered by smaller bundles`)
+      }
+    }
+
+    // Filter out bundles to skip
+    const entriesToProcess = mergedEntries.filter(e => !bundlesToSkip.has(e.url))
+    if (bundlesToSkip.size > 0) {
+      log(`  Skipping ${bundlesToSkip.size} redundant bundles, processing ${entriesToProcess.length}/${mergedEntries.length}`)
+    }
+
+    // Process entries with parallel worker threads for heavy entries
+    const endEntries = createTimer(`convertEntries (${entriesToProcess.length} entries)`)
+    const entries = entriesToProcess
 
     // Debug: List all entry URLs (now de-duplicated)
-    log(`  Debug: All ${entries.length} unique entry URLs:`)
-    entries.forEach((entry, i) => log(`    [${i + 1}] ${entry.url}`))
+    log(`  Debug: All ${mergedEntries.length} unique entry URLs:`)
+    mergedEntries.forEach((entry, i) => log(`    [${i + 1}] ${entry.url}`))
 
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-      const batch = entries.slice(i, i + BATCH_SIZE)
+    // Pre-process to identify heavy entries that should use worker threads
+    // Heavy entries are those with large source files (>100KB)
+    const heavyEntries: typeof entries = []
+    const lightEntries: typeof entries = []
+
+    for (const entry of entries) {
+      // Check source size - if provided or estimate from URL
+      const sourceSize = entry.source?.length || 0
+      if (sourceSize > HEAVY_ENTRY_THRESHOLD) {
+        heavyEntries.push(entry)
+      } else {
+        lightEntries.push(entry)
+      }
+    }
+
+    // Process heavy entries in parallel using worker pool
+    if (heavyEntries.length > 0) {
+      log(`  🔧 Processing ${heavyEntries.length} heavy entries with worker threads`)
+      // Prepare and run all heavy entries in parallel
+      const heavyPromises = heavyEntries.map(async (entry) => {
+        try {
+          // Use worker-based conversion for heavy entries
+          const istanbulCoverage = await this.convertEntryWithWorker(entry)
+          return { success: true, coverage: istanbulCoverage, entry }
+        } catch (error) {
+          return { success: false, error, entry }
+        }
+      })
+
+      const heavyResults = await Promise.all(heavyPromises)
+
+      // Merge heavy results
+      for (const result of heavyResults) {
+        if (result.success && result.coverage && Object.keys(result.coverage).length > 0) {
+          coverageMap.merge(result.coverage)
+          successCount++
+        } else {
+          failCount++
+          if (!result.success && result.error) {
+            const reason = result.error instanceof Error ? result.error.message.substring(0, 50) : 'unknown'
+            failReasons[reason] = (failReasons[reason] || 0) + 1
+          } else {
+            failReasons['skipped (no source map or not in src/)'] = (failReasons['skipped (no source map or not in src/)'] || 0) + 1
+          }
+          skippedUrls.set(result.entry.url, (skippedUrls.get(result.entry.url) || 0) + 1)
+        }
+      }
+    }
+
+    // Process light entries in batches on main thread
+    for (let i = 0; i < lightEntries.length; i += ENTRY_BATCH_SIZE) {
+      const batch = lightEntries.slice(i, i + ENTRY_BATCH_SIZE)
       const results = await Promise.all(
         batch.map(async (entry) => {
           try {
@@ -293,9 +461,8 @@ export class CoverageConverter {
     // Batch read all source files in parallel
     const sourceCache = new Map<string, string>()
     if (filesToRead.length > 0) {
-      const BATCH_SIZE = 50
-      for (let i = 0; i < filesToRead.length; i += BATCH_SIZE) {
-        const batch = filesToRead.slice(i, i + BATCH_SIZE)
+      for (let i = 0; i < filesToRead.length; i += FILE_READ_BATCH_SIZE) {
+        const batch = filesToRead.slice(i, i + FILE_READ_BATCH_SIZE)
         const results = await Promise.all(
           batch.map(async (filePath) => {
             try {
@@ -485,9 +652,8 @@ export class CoverageConverter {
     // Batch read all needed source files in parallel
     const sourceCache = new Map<string, string>()
     if (filesToRead.length > 0) {
-      const BATCH_SIZE = 50
-      for (let i = 0; i < filesToRead.length; i += BATCH_SIZE) {
-        const batch = filesToRead.slice(i, i + BATCH_SIZE)
+      for (let i = 0; i < filesToRead.length; i += FILE_READ_BATCH_SIZE) {
+        const batch = filesToRead.slice(i, i + FILE_READ_BATCH_SIZE)
         const results = await Promise.all(
           batch.map(async (filePath) => {
             try {
@@ -789,9 +955,14 @@ export class CoverageConverter {
       ? resolve(this.projectRoot, devModeOriginalPath)
       : null
 
-    // Debug: Track why entries fail
-    const debugUrl = url.substring(0, 80)
+    // Debug: Track why entries fail - show more of the URL for identification
+    const debugUrl = url.length > 120 ? url.substring(0, 120) + '...' : url
 
+    // Timing for detailed performance analysis
+    const timings: Record<string, number> = {}
+    const startTotal = performance.now()
+
+    const startLoad = performance.now()
     if (!code) {
       const sourceFile = await this.sourceMapLoader.loadSource(url)
       if (!sourceFile) {
@@ -825,6 +996,7 @@ export class CoverageConverter {
         }
       }
     }
+    timings.load = performance.now() - startLoad
 
     // If we couldn't resolve a file path, try to extract from URL
     if (!filePath) {
@@ -837,6 +1009,7 @@ export class CoverageConverter {
 
     // Parse AST using Vite's fast Rollup-based parser
     // This works because the code here is already bundled JavaScript (not TypeScript)
+    const startParse = performance.now()
     let ast
     try {
       ast = await parseAstAsync(code)
@@ -847,9 +1020,12 @@ export class CoverageConverter {
       }
       return null
     }
+    timings.parse = performance.now() - startParse
 
     // Sanitize source map to fix empty source entries
+    const startSanitize = performance.now()
     const sanitizedSourceMap = sourceMap ? this.sanitizeSourceMap(sourceMap) : undefined
+    timings.sanitize = performance.now() - startSanitize
 
     // If source map was rejected as problematic, skip this file entirely
     // Next.js production builds have complex source maps with external references
@@ -864,7 +1040,58 @@ export class CoverageConverter {
       return null
     }
 
+    // Log source map complexity for debugging performance issues
+    if (sanitizedSourceMap) {
+      const totalSources = sourceMap?.sources?.length || 0
+      const afterSanitize = sanitizedSourceMap.sources.length
+      const mappingsLen = sanitizedSourceMap.mappings?.length || 0
+      const codeLen = code.length
+      log(`  📊 Sourcemap: ${totalSources} → ${afterSanitize} sources, mappings=${mappingsLen} chars, code=${codeLen} chars: ${debugUrl}`)
+
+      // Performance optimization: Skip very large bundled files if the primary source is excluded
+      // The primary source is the one that matches the bundle filename (e.g., middleware.ts for middleware.js)
+      const MAX_CODE_SIZE = 200_000 // 200KB
+      if (codeLen > MAX_CODE_SIZE) {
+        log(`  ⚠️ Large bundle (${(codeLen / 1024).toFixed(0)}KB code, ${afterSanitize} src files): ${debugUrl}`)
+        log(`    Sources: ${sanitizedSourceMap.sources.map(s => s.split('/').pop()).join(', ')}`)
+
+        // Check if the PRIMARY source (matching bundle name) is excluded
+        // For middleware.js bundle, primary source is middleware.ts
+        // Other bundled deps (constants.ts, auth.ts) are covered by their own bundles
+        if (this.excludePatterns.length > 0) {
+          // Extract bundle name from URL (e.g., "middleware" from "_next/static/chunks/middleware.js")
+          const urlParts = debugUrl.split('/')
+          const bundleFile = urlParts[urlParts.length - 1] // e.g., "middleware.js"
+          const bundleName = bundleFile.replace(/\.js$/, '') // e.g., "middleware"
+
+          // Find the primary source - the one whose filename matches the bundle name
+          const primarySource = sanitizedSourceMap.sources.find(source => {
+            const sourceFile = source.split('/').pop() || ''
+            const sourceName = sourceFile.replace(/\.(ts|tsx|js|jsx)$/, '')
+            return sourceName === bundleName
+          })
+
+          if (primarySource && this.isSourceExcluded(primarySource)) {
+            log(`  ⏭️ Skipping large bundle: primary source "${primarySource}" is excluded`)
+            return null
+          }
+        }
+      }
+    }
+
+    // For large bundles, compute the byte range where src code exists
+    // This allows us to skip processing AST nodes outside this range
+    let srcCodeRange: { minOffset: number; maxOffset: number } | null = null
+    if (sanitizedSourceMap && code.length > 200_000) {
+      srcCodeRange = this.computeSrcCodeRange(sanitizedSourceMap, code)
+      if (srcCodeRange) {
+        const rangeSize = srcCodeRange.maxOffset - srcCodeRange.minOffset
+        log(`  🎯 Src code range: ${srcCodeRange.minOffset}-${srcCodeRange.maxOffset} (${(rangeSize / 1024).toFixed(0)}KB of ${(code.length / 1024).toFixed(0)}KB)`)
+      }
+    }
+
     // Convert using ast-v8-to-istanbul
+    const startConvert = performance.now()
     try {
       const istanbulCoverage = await astV8ToIstanbul({
         code,
@@ -876,12 +1103,184 @@ export class CoverageConverter {
         },
         wrapperLength: 0,
         ignoreClassMethods: [],
-        ignoreNode: (node, type) => this.shouldIgnoreNode(node, type),
+        ignoreNode: (node, type) => {
+          // For large bundles, skip nodes outside the src code range
+          // This dramatically reduces processing time by avoiding source map lookups
+          // for code that will never map to our src files
+          const nodeAny = node as any
+          if (srcCodeRange && typeof nodeAny.start === 'number' && typeof nodeAny.end === 'number') {
+            if (nodeAny.end < srcCodeRange.minOffset || nodeAny.start > srcCodeRange.maxOffset) {
+              return 'ignore-this-and-nested-nodes'
+            }
+          }
+          return this.shouldIgnoreNode(node, type)
+        },
       })
+      timings.astV8ToIstanbul = performance.now() - startConvert
+      timings.total = performance.now() - startTotal
+
+      // Log timing for slow entries (>100ms)
+      if (timings.total > 100) {
+        log(`  ⏱ Slow entry (${timings.total.toFixed(0)}ms): ${debugUrl}`)
+        log(`    load=${timings.load.toFixed(0)}ms parse=${timings.parse.toFixed(0)}ms sanitize=${timings.sanitize.toFixed(0)}ms astV8ToIstanbul=${timings.astV8ToIstanbul.toFixed(0)}ms`)
+      }
 
       return istanbulCoverage as CoverageMapData
     } catch (error) {
       log(`  Debug: astV8ToIstanbul error: ${error instanceof Error ? error.message : error}`)
+      return null
+    }
+  }
+
+  /**
+   * Convert a single V8 script coverage entry using a worker thread
+   *
+   * This method offloads the CPU-intensive AST parsing and astV8ToIstanbul
+   * processing to a worker thread, allowing parallel processing of multiple
+   * large bundles on multi-core machines.
+   */
+  async convertEntryWithWorker(entry: V8ScriptCoverage | DevModeV8ScriptCoverage): Promise<CoverageMapData | null> {
+    const { url, functions, source } = entry
+    const startTotal = performance.now()
+
+    // Validate required fields
+    if (!url || typeof url !== 'string') {
+      log(`  Skipping entry with invalid URL: ${url}`)
+      return null
+    }
+
+    // Check for dev mode pre-attached source map data
+    const devModeEntry = entry as DevModeV8ScriptCoverage
+    const devModeSourceMap = devModeEntry.sourceMapData
+    const devModeOriginalPath = devModeEntry.originalPath
+
+    // Load source code and source map
+    let code = source
+    let sourceMap: SourceMapData | undefined = devModeSourceMap
+    let filePath: string | null = devModeOriginalPath
+      ? resolve(this.projectRoot, devModeOriginalPath)
+      : null
+
+    const debugUrl = url.length > 120 ? url.substring(0, 120) + '...' : url
+
+    if (!code) {
+      const sourceFile = await this.sourceMapLoader.loadSource(url)
+      if (!sourceFile) {
+        return null
+      }
+      code = sourceFile.code
+      if (!sourceMap) {
+        sourceMap = sourceFile.sourceMap
+      }
+      if (!filePath) {
+        filePath = sourceFile.path
+      }
+    } else if (!sourceMap) {
+      const sourceFile = await this.sourceMapLoader.loadSource(url)
+      if (sourceFile?.sourceMap) {
+        sourceMap = sourceFile.sourceMap
+        if (!filePath) {
+          filePath = sourceFile.path
+        }
+      } else {
+        sourceMap = this.sourceMapLoader.extractInlineSourceMap(code) || undefined
+        if (!filePath) {
+          filePath = this.sourceMapLoader.urlToFilePath(url)
+        }
+      }
+    }
+
+    if (!filePath) {
+      filePath = this.sourceMapLoader.urlToFilePath(url)
+    }
+
+    const coverageUrl = filePath ? this.toFileUrl(filePath) : url
+
+    // Sanitize source map
+    const sanitizedSourceMap = sourceMap ? this.sanitizeSourceMap(sourceMap) : undefined
+
+    if (sourceMap && !sanitizedSourceMap) {
+      return null
+    }
+
+    // Log source map complexity
+    if (sanitizedSourceMap) {
+      const totalSources = sourceMap?.sources?.length || 0
+      const afterSanitize = sanitizedSourceMap.sources.length
+      const mappingsLen = sanitizedSourceMap.mappings?.length || 0
+      const codeLen = code.length
+      log(`  📊 Sourcemap: ${totalSources} → ${afterSanitize} sources, mappings=${mappingsLen} chars, code=${codeLen} chars: ${debugUrl}`)
+
+      // Skip large bundles if primary source is excluded
+      const MAX_CODE_SIZE = 200_000
+      if (codeLen > MAX_CODE_SIZE) {
+        log(`  ⚠️ Large bundle (${(codeLen / 1024).toFixed(0)}KB code, ${afterSanitize} src files): ${debugUrl}`)
+        log(`    Sources: ${sanitizedSourceMap.sources.map(s => s.split('/').pop()).join(', ')}`)
+
+        if (this.excludePatterns.length > 0) {
+          const urlParts = debugUrl.split('/')
+          const bundleFile = urlParts[urlParts.length - 1]
+          const bundleName = bundleFile.replace(/\.js$/, '')
+
+          const primarySource = sanitizedSourceMap.sources.find(source => {
+            const sourceFile = source.split('/').pop() || ''
+            const sourceName = sourceFile.replace(/\.(ts|tsx|js|jsx)$/, '')
+            return sourceName === bundleName
+          })
+
+          if (primarySource && this.isSourceExcluded(primarySource)) {
+            log(`  ⏭️ Skipping large bundle: primary source "${primarySource}" is excluded`)
+            return null
+          }
+        }
+      }
+    }
+
+    // Compute src code range for optimization
+    let srcCodeRange: { minOffset: number; maxOffset: number } | null = null
+    if (sanitizedSourceMap && code.length > 200_000) {
+      srcCodeRange = this.computeSrcCodeRange(sanitizedSourceMap, code)
+      if (srcCodeRange) {
+        const rangeSize = srcCodeRange.maxOffset - srcCodeRange.minOffset
+        log(`  🎯 Src code range: ${srcCodeRange.minOffset}-${srcCodeRange.maxOffset} (${(rangeSize / 1024).toFixed(0)}KB of ${(code.length / 1024).toFixed(0)}KB)`)
+      }
+    }
+
+    // Send to worker for processing
+    const pool = getWorkerPool()
+    try {
+      const result = await pool.runTask({
+        code,
+        sourceMap: sanitizedSourceMap ? {
+          sources: sanitizedSourceMap.sources,
+          sourcesContent: sanitizedSourceMap.sourcesContent || [],
+          mappings: sanitizedSourceMap.mappings,
+          names: sanitizedSourceMap.names,
+          version: sanitizedSourceMap.version,
+          file: sanitizedSourceMap.file,
+          sourceRoot: sanitizedSourceMap.sourceRoot,
+        } : null,
+        coverageUrl,
+        functions,
+        srcCodeRange,
+      })
+
+      const totalTime = performance.now() - startTotal
+
+      if (result.success && result.coverage) {
+        if (totalTime > 100) {
+          log(`  ⏱ Slow entry [worker] (${totalTime.toFixed(0)}ms): ${debugUrl}`)
+          if (result.timings) {
+            log(`    parse=${result.timings.parse.toFixed(0)}ms convert=${result.timings.convert.toFixed(0)}ms`)
+          }
+        }
+        return result.coverage as CoverageMapData
+      } else {
+        log(`  Debug: Worker astV8ToIstanbul error: ${result.error}`)
+        return null
+      }
+    } catch (error) {
+      log(`  Debug: Worker error: ${error instanceof Error ? error.message : error}`)
       return null
     }
   }
@@ -909,8 +1308,9 @@ export class CoverageConverter {
       const reason = this.getSourceRejectionReason(source, content)
       if (!reason) {
         validSourceIndices.add(i)
-        if (acceptedSources.length < 5) {
-          acceptedSources.push(`[${i}] ${source?.substring(0, 60)}`)
+        if (acceptedSources.length < 10) {
+          // Show full source path for better debugging
+          acceptedSources.push(`[${i}] ${source}`)
         }
       } else if (rejectionReasons.length < 5) {
         // Log first 5 rejection reasons for debugging
@@ -931,6 +1331,22 @@ export class CoverageConverter {
     if (acceptedSources.length > 0) {
       log(`  Debug: sanitizeSourceMap accepted ${validSourceIndices.size}/${sourceMap.sources.length} sources`)
       acceptedSources.forEach(s => log(`    ✓ ${s}`))
+    }
+
+    // Performance optimization: Skip bundles where ALL valid sources are excluded
+    // This avoids expensive VLQ decode/encode for bundles like middleware.js
+    // where all sources (e.g., middleware.ts) are in the exclude list.
+    if (this.excludePatterns.length > 0) {
+      const validSources = Array.from(validSourceIndices).map(i => sourceMap.sources[i])
+      const allExcluded = validSources.every(source => {
+        const normalized = this.sourceMapLoader.normalizeSourcePath(source)
+        return this.isSourceExcluded(normalized)
+      })
+      if (allExcluded) {
+        log(`  ⏭️ Skipping bundle: all ${validSources.length} sources match exclude patterns`)
+        validSources.slice(0, 5).forEach(s => log(`    - ${s.split('/').pop()}`))
+        return undefined
+      }
     }
 
     // If all sources are valid, just normalize and return
@@ -1082,6 +1498,73 @@ export class CoverageConverter {
   }
 
   /**
+   * Compute the byte range in the generated code where src file mappings exist.
+   * For large bundles with many external dependencies, src code is often clustered
+   * at the end of the file. By computing this range, we can skip processing
+   * AST nodes outside this range, significantly improving performance.
+   *
+   * Returns { minOffset, maxOffset } or null if no src mappings found.
+   */
+  private computeSrcCodeRange(
+    sourceMap: SourceMapData,
+    code: string
+  ): { minOffset: number; maxOffset: number } | null {
+    if (!sourceMap.mappings || !sourceMap.sources) {
+      return null
+    }
+
+    // Decode the mappings
+    let decodedMappings: SourceMapMappings
+    try {
+      decodedMappings = decode(sourceMap.mappings)
+    } catch {
+      return null
+    }
+
+    // Find line offsets in the generated code
+    const lines = code.split('\n')
+    const lineOffsets: number[] = [0]
+    let offset = 0
+    for (const line of lines) {
+      offset += line.length + 1 // +1 for newline
+      lineOffsets.push(offset)
+    }
+
+    // Find min and max offsets for segments mapping to our src files
+    // Note: At this point, sourceMap.sources only contains our src files
+    // (it's already been sanitized)
+    let minOffset = Infinity
+    let maxOffset = -1
+
+    for (let lineIndex = 0; lineIndex < decodedMappings.length; lineIndex++) {
+      const lineSegments = decodedMappings[lineIndex]
+      const lineStart = lineOffsets[lineIndex] || 0
+
+      for (const segment of lineSegments) {
+        if (segment.length >= 4) {
+          // This segment maps to a source file
+          const columnOffset = segment[0]
+          const byteOffset = lineStart + columnOffset
+
+          if (byteOffset < minOffset) minOffset = byteOffset
+          if (byteOffset > maxOffset) maxOffset = byteOffset
+        }
+      }
+    }
+
+    if (minOffset === Infinity || maxOffset === -1) {
+      return null
+    }
+
+    // Add some padding to ensure we don't miss boundary nodes
+    // Subtract 1000 chars before and add 5000 chars after (functions can be long)
+    const paddedMin = Math.max(0, minOffset - 1000)
+    const paddedMax = Math.min(code.length, maxOffset + 5000)
+
+    return { minOffset: paddedMin, maxOffset: paddedMax }
+  }
+
+  /**
    * Determine if a node should be ignored in coverage
    * Mirrors Vitest's ignoreNode logic for SSR/bundler artifacts
    */
@@ -1177,9 +1660,8 @@ export class CoverageConverter {
     // 3. Absolute paths would fail the pattern match (e.g., C:/Users/.../src/file.ts vs src/**/*.ts)
 
     // Process uncovered files in parallel batches
-    const BATCH_SIZE = 20
-    for (let i = 0; i < uncoveredFiles.length; i += BATCH_SIZE) {
-      const batch = uncoveredFiles.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < uncoveredFiles.length; i += ENTRY_BATCH_SIZE) {
+      const batch = uncoveredFiles.slice(i, i + ENTRY_BATCH_SIZE)
       const results = await Promise.all(
         batch.map(async (filePath) => {
           try {
