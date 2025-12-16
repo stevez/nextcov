@@ -19,21 +19,17 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { CDPClient } from 'monocart-coverage-reports'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
 import { getServerPatterns, isLocalFileUrl, isNodeModulesUrl, containsSourceRoot } from '../constants.js'
-import { log } from '../logger.js'
+import { log, safeClose } from '../logger.js'
+import {
+  type MonocartCDPClient,
+  type BaseCoverageEntry,
+  connectToCdp,
+  attachSourceContent,
+} from './cdp-utils.js'
 
-export interface V8ServerCoverageEntry {
-  url: string
-  source?: string
-  functions: Array<{
-    functionName: string
-    ranges: Array<{ startOffset: number; endOffset: number; count: number }>
-    isBlockCoverage: boolean
-  }>
-}
+export interface V8ServerCoverageEntry extends BaseCoverageEntry {}
 
 export interface V8ServerCollectorConfig {
   /** CDP port to connect to (default: 9230) */
@@ -53,7 +49,7 @@ export interface V8ServerCollectorConfig {
  */
 export class V8ServerCoverageCollector {
   private config: Required<V8ServerCollectorConfig>
-  private cdpClient: Awaited<ReturnType<typeof CDPClient>> | null = null
+  private cdpClient: MonocartCDPClient | null = null
 
   constructor(config?: Partial<V8ServerCollectorConfig>) {
     // Get v8 coverage dir from env or config
@@ -75,15 +71,8 @@ export class V8ServerCoverageCollector {
    * Note: We don't start coverage here - NODE_V8_COVERAGE handles that automatically
    */
   async connect(): Promise<boolean> {
-    try {
-      log(`  Connecting to CDP at port ${this.config.cdpPort}...`)
-      this.cdpClient = await CDPClient({ port: this.config.cdpPort })
-      log('  ✓ Connected to CDP')
-      return true
-    } catch (error) {
-      log(`  ⚠️ Failed to connect to CDP: ${error}`)
-      return false
-    }
+    this.cdpClient = await connectToCdp(this.config.cdpPort)
+    return this.cdpClient !== null
   }
 
   /**
@@ -201,22 +190,6 @@ export class V8ServerCoverageCollector {
   }
 
   /**
-   * Attach source content to coverage entries
-   */
-  private attachSourceContent(entries: V8ServerCoverageEntry[]): void {
-    for (const entry of entries) {
-      try {
-        const filePath = fileURLToPath(entry.url)
-        if (existsSync(filePath)) {
-          entry.source = readFileSync(filePath, 'utf-8')
-        }
-      } catch (error) {
-        log(`  Skipping file ${entry.url}: ${error instanceof Error ? error.message : 'unknown error'}`)
-      }
-    }
-  }
-
-  /**
    * Collect server-side coverage
    *
    * 1. Triggers v8.takeCoverage() via CDP
@@ -230,16 +203,11 @@ export class V8ServerCoverageCollector {
     try {
       // Step 1: Trigger coverage write via CDP
       coverageDir = await this.triggerCoverageWrite()
+    } catch (error) {
+      log(`  ⚠️ CDP trigger failed (will try reading existing coverage): ${error}`)
     } finally {
-      // Always close CDP connection to prevent resource leaks
-      if (this.cdpClient) {
-        try {
-          await this.cdpClient.close()
-        } catch {
-          // Ignore close errors
-        }
-        this.cdpClient = null
-      }
+      await safeClose(this.cdpClient)
+      this.cdpClient = null
     }
 
     // Use configured dir if trigger didn't return one
@@ -260,7 +228,7 @@ export class V8ServerCoverageCollector {
     log(`  Filtered to ${filtered.length} server coverage entries`)
 
     // Step 4: Attach source content
-    this.attachSourceContent(filtered)
+    attachSourceContent(filtered)
 
     log(`  ✓ Collected ${filtered.length} server coverage entries`)
 

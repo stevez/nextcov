@@ -22,6 +22,7 @@ vi.mock('../logger.js', () => ({
   isLoggingEnabled: vi.fn().mockReturnValue(false),
   warn: vi.fn(),
   error: vi.fn(),
+  formatError: vi.fn((err) => err instanceof Error ? err.message : String(err)),
 }))
 
 // Helper to create a coverage map with test data

@@ -14,7 +14,7 @@ import reports from 'istanbul-reports'
 import type { CoverageMap } from 'istanbul-lib-coverage'
 import type { ReporterType, Watermarks, CoverageSummary, CoverageMetric } from './types.js'
 import { DEFAULT_WATERMARKS, DEFAULT_REPORTERS, COVERAGE_FINAL_JSON } from './config.js'
-import { log } from './logger.js'
+import { log, formatError } from './logger.js'
 
 export class IstanbulReporter {
   private outputDir: string
@@ -183,7 +183,8 @@ export class IstanbulReporter {
       const data = JSON.parse(content)
       const { createCoverageMap } = await import('istanbul-lib-coverage')
       return createCoverageMap(data)
-    } catch {
+    } catch (error) {
+      log(`  Failed to read coverage JSON ${filePath}: ${formatError(error)}`)
       return null
     }
   }

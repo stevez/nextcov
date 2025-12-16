@@ -12,26 +12,22 @@
  * Note: Server code runs on CDP port 9231 (child worker), not 9230 (parent CLI)
  */
 
-import type { V8CoverageEntry } from './server.js'
 import type { SourceMapData } from '../types.js'
-import { CDPClient } from 'monocart-coverage-reports'
 import { DevModeSourceMapExtractor } from '../dev-mode-extractor.js'
 import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from '../config.js'
 import { log } from '../logger.js'
-
-/** Monocart CDPClient type */
-type MonocartCDPClient = Awaited<ReturnType<typeof CDPClient>>
+import {
+  type MonocartCDPClient,
+  type BaseCoverageEntry,
+  isClientConnected,
+  collectCoverage,
+  connectAndStartCoverage,
+} from './cdp-utils.js'
 
 /** Coverage entry returned by monocart stopJSCoverage */
-interface MonocartCoverageEntry {
+interface MonocartCoverageEntry extends BaseCoverageEntry {
   scriptId: string
-  url: string
   source: string
-  functions: Array<{
-    functionName: string
-    ranges: Array<{ startOffset: number; endOffset: number; count: number }>
-    isBlockCoverage: boolean
-  }>
 }
 
 export interface DevServerCollectorConfig {
@@ -41,7 +37,7 @@ export interface DevServerCollectorConfig {
   sourceRoot: string
 }
 
-export interface DevServerCoverageEntry extends V8CoverageEntry {
+export interface DevServerCoverageEntry extends BaseCoverageEntry {
   /** Extracted source map data */
   sourceMapData?: SourceMapData
   /** Original file path (from source map) */
@@ -76,102 +72,62 @@ export class DevModeServerCollector {
    * Connect to CDP and start JS coverage collection
    */
   async connect(): Promise<boolean> {
-    try {
-      log(`  Connecting to CDP (dev mode) at port ${this.config.cdpPort}...`)
-
-      // Use monocart CDPClient - it handles debugger setup and script source collection
-      this.client = await CDPClient({ port: this.config.cdpPort })
-
-      if (!this.client) {
-        log('  ⚠️ Failed to create CDP client (dev mode)')
-        return false
-      }
-
-      // Start JS coverage - this enables Debugger and Profiler
-      await this.client.startJSCoverage()
-
-      log('  ✓ Connected to CDP (dev mode)')
-      log('  ✓ Started JS coverage collection (dev mode)')
-
-      return true
-    } catch (error) {
-      log(`  ⚠️ Failed to connect to CDP (dev mode): ${error}`)
+    this.client = await connectAndStartCoverage(this.config.cdpPort, 'dev mode')
+    if (!this.client) {
       log('  Note: In dev mode, server code runs on port 9231 (worker process)')
-      return false
     }
+    return this.client !== null
   }
 
   /**
    * Collect coverage and source maps for all project scripts
    */
   async collect(): Promise<DevServerCoverageEntry[]> {
-    if (!this.client) {
-      log('  ⚠️ CDP not connected (dev mode)')
+    if (!isClientConnected(this.client, 'dev mode')) {
       return []
     }
 
-    try {
-      // Stop coverage and get results - monocart already includes source in each entry
-      const coverageEntries = await this.client.stopJSCoverage() as MonocartCoverageEntry[]
+    return collectCoverage<MonocartCoverageEntry, DevServerCoverageEntry>(this.client, {
+      mode: 'dev mode',
+      filter: (entries) => {
+        log(`  Found ${entries.length} total scripts`)
+        const filtered = entries.filter((entry) => this.extractor.isProjectScript(entry.url))
+        log(`  Found ${filtered.length} project scripts in dev mode`)
+        return filtered
+      },
+      transform: (entries) => this.transformEntries(entries),
+      cleanup: () => { this.client = null },
+    })
+  }
 
-      if (!coverageEntries || coverageEntries.length === 0) {
-        log('  ⚠️ No coverage entries returned (dev mode)')
-        return []
-      }
+  /**
+   * Transform coverage entries and extract source maps
+   */
+  private transformEntries(entries: MonocartCoverageEntry[]): DevServerCoverageEntry[] {
+    return entries.map((coverage) => {
+      const extracted = this.extractor.extractFromScriptSource(coverage.url, coverage.source)
 
-      log(`  Found ${coverageEntries.length} total scripts`)
-
-      // Filter to project scripts only (webpack-internal URLs with src/)
-      const projectEntries = coverageEntries.filter((entry) =>
-        this.extractor.isProjectScript(entry.url)
-      )
-
-      log(`  Found ${projectEntries.length} project scripts in dev mode`)
-
-      // Transform entries and extract source maps
-      const entries: DevServerCoverageEntry[] = []
-
-      for (const coverage of projectEntries) {
-        const extracted = this.extractor.extractFromScriptSource(coverage.url, coverage.source)
-
-        const entry: DevServerCoverageEntry = {
-          url: coverage.url,
-          source: coverage.source,
-          functions: coverage.functions.map((fn) => ({
-            functionName: fn.functionName,
-            ranges: fn.ranges.map((r) => ({
-              startOffset: r.startOffset,
-              endOffset: r.endOffset,
-              count: r.count,
-            })),
-            isBlockCoverage: fn.isBlockCoverage,
+      const entry: DevServerCoverageEntry = {
+        url: coverage.url,
+        source: coverage.source,
+        functions: coverage.functions.map((fn) => ({
+          functionName: fn.functionName,
+          ranges: fn.ranges.map((r) => ({
+            startOffset: r.startOffset,
+            endOffset: r.endOffset,
+            count: r.count,
           })),
-        }
-
-        if (extracted) {
-          entry.sourceMapData = this.extractor.toStandardSourceMap(extracted)
-          entry.originalPath = extracted.originalPath
-        }
-
-        entries.push(entry)
+          isBlockCoverage: fn.isBlockCoverage,
+        })),
       }
 
-      log(`  ✓ Collected ${entries.length} server coverage entries (dev mode)`)
-      return entries
-    } catch (error) {
-      log(`  ⚠️ Failed to collect server coverage (dev mode): ${error}`)
-      return []
-    } finally {
-      // Always close CDP client to prevent resource leaks
-      if (this.client) {
-        try {
-          await this.client.close()
-        } catch {
-          // Ignore close errors
-        }
-        this.client = null
+      if (extracted) {
+        entry.sourceMapData = this.extractor.toStandardSourceMap(extracted)
+        entry.originalPath = extracted.originalPath
       }
-    }
+
+      return entry
+    })
   }
 
   /**

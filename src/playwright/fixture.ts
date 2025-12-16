@@ -25,7 +25,6 @@ import {
   ClientCoverageCollector,
   V8ServerCoverageCollector,
   DevModeServerCollector,
-  type V8CoverageEntry,
   type PlaywrightCoverageEntry,
   type DevServerCoverageEntry,
   type V8ServerCoverageEntry,
@@ -304,7 +303,7 @@ async function cleanupCoverageFiles(
  * Process combined coverage and generate reports.
  */
 async function processCoverageAndGenerateReports(
-  allCoverage: Array<V8CoverageEntry | PlaywrightCoverageEntry | DevServerCoverageEntry>,
+  allCoverage: Array<V8ServerCoverageEntry | PlaywrightCoverageEntry | DevServerCoverageEntry>,
   opts: Required<PlaywrightCoverageOptions>
 ): Promise<CoverageResult | null> {
   log('📊 Processing coverage with ast-v8-to-istanbul...')

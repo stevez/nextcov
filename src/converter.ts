@@ -16,10 +16,10 @@ import { decode, encode, type SourceMapMappings } from '@jridgewell/sourcemap-co
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
 import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, SourceMapData, SourceFilter } from './types.js'
 import { SourceMapLoader } from './sourcemap-loader.js'
-import { log, createTimer } from './logger.js'
+import { log, warn, createTimer, formatError } from './logger.js'
 import { normalizePath } from './config.js'
 import { getWorkerPool } from './worker-pool.js'
-import { FILE_PROTOCOL, LARGE_BUNDLE_THRESHOLD, HEAVY_ENTRY_THRESHOLD, ENTRY_BATCH_SIZE, FILE_READ_BATCH_SIZE } from './constants.js'
+import { FILE_PROTOCOL, LARGE_BUNDLE_THRESHOLD, HEAVY_ENTRY_THRESHOLD, ENTRY_BATCH_SIZE, FILE_READ_BATCH_SIZE, SOURCE_MAP_RANGE_THRESHOLD, SOURCE_MAP_PADDING_BEFORE, SOURCE_MAP_PADDING_AFTER } from './constants.js'
 
 /**
  * Normalize URL for merging by stripping query parameters.
@@ -469,6 +469,7 @@ export class CoverageConverter {
               const content = await fs.readFile(filePath, 'utf-8')
               return { filePath, content }
             } catch {
+              // File read failed - expected for missing or inaccessible files
               return { filePath, content: null }
             }
           })
@@ -660,6 +661,7 @@ export class CoverageConverter {
               const content = await fs.readFile(filePath, 'utf-8')
               return { filePath, content }
             } catch {
+              // File read failed - expected for missing or inaccessible files
               return { filePath, content: null }
             }
           })
@@ -1013,11 +1015,8 @@ export class CoverageConverter {
     let ast
     try {
       ast = await parseAstAsync(code)
-    } catch {
-      // Debug: AST parse failed
-      if (process.env.DEBUG_COVERAGE) {
-        log(`  [DEBUG] AST parse failed for: ${debugUrl}`)
-      }
+    } catch (error) {
+      log(`  AST parse failed for ${debugUrl}: ${formatError(error)}`)
       return null
     }
     timings.parse = performance.now() - startParse
@@ -1050,8 +1049,7 @@ export class CoverageConverter {
 
       // Performance optimization: Skip very large bundled files if the primary source is excluded
       // The primary source is the one that matches the bundle filename (e.g., middleware.ts for middleware.js)
-      const MAX_CODE_SIZE = 200_000 // 200KB
-      if (codeLen > MAX_CODE_SIZE) {
+      if (codeLen > SOURCE_MAP_RANGE_THRESHOLD) {
         log(`  ⚠️ Large bundle (${(codeLen / 1024).toFixed(0)}KB code, ${afterSanitize} src files): ${debugUrl}`)
         log(`    Sources: ${sanitizedSourceMap.sources.map(s => s.split('/').pop()).join(', ')}`)
 
@@ -1082,7 +1080,7 @@ export class CoverageConverter {
     // For large bundles, compute the byte range where src code exists
     // This allows us to skip processing AST nodes outside this range
     let srcCodeRange: { minOffset: number; maxOffset: number } | null = null
-    if (sanitizedSourceMap && code.length > 200_000) {
+    if (sanitizedSourceMap && code.length > SOURCE_MAP_RANGE_THRESHOLD) {
       srcCodeRange = this.computeSrcCodeRange(sanitizedSourceMap, code)
       if (srcCodeRange) {
         const rangeSize = srcCodeRange.maxOffset - srcCodeRange.minOffset
@@ -1212,8 +1210,7 @@ export class CoverageConverter {
       log(`  📊 Sourcemap: ${totalSources} → ${afterSanitize} sources, mappings=${mappingsLen} chars, code=${codeLen} chars: ${debugUrl}`)
 
       // Skip large bundles if primary source is excluded
-      const MAX_CODE_SIZE = 200_000
-      if (codeLen > MAX_CODE_SIZE) {
+      if (codeLen > SOURCE_MAP_RANGE_THRESHOLD) {
         log(`  ⚠️ Large bundle (${(codeLen / 1024).toFixed(0)}KB code, ${afterSanitize} src files): ${debugUrl}`)
         log(`    Sources: ${sanitizedSourceMap.sources.map(s => s.split('/').pop()).join(', ')}`)
 
@@ -1238,7 +1235,7 @@ export class CoverageConverter {
 
     // Compute src code range for optimization
     let srcCodeRange: { minOffset: number; maxOffset: number } | null = null
-    if (sanitizedSourceMap && code.length > 200_000) {
+    if (sanitizedSourceMap && code.length > SOURCE_MAP_RANGE_THRESHOLD) {
       srcCodeRange = this.computeSrcCodeRange(sanitizedSourceMap, code)
       if (srcCodeRange) {
         const rangeSize = srcCodeRange.maxOffset - srcCodeRange.minOffset
@@ -1364,7 +1361,8 @@ export class CoverageConverter {
     let decodedMappings: SourceMapMappings
     try {
       decodedMappings = decode(sourceMap.mappings)
-    } catch {
+    } catch (error) {
+      log(`  Failed to decode source map mappings: ${formatError(error)}`)
       return undefined
     }
 
@@ -1403,7 +1401,8 @@ export class CoverageConverter {
     let encodedMappings: string
     try {
       encodedMappings = encode(filteredMappings)
-    } catch {
+    } catch (error) {
+      log(`  Failed to encode source map mappings: ${formatError(error)}`)
       return undefined
     }
 
@@ -1518,6 +1517,7 @@ export class CoverageConverter {
     try {
       decodedMappings = decode(sourceMap.mappings)
     } catch {
+      // Invalid mappings - expected for malformed source maps
       return null
     }
 
@@ -1557,9 +1557,9 @@ export class CoverageConverter {
     }
 
     // Add some padding to ensure we don't miss boundary nodes
-    // Subtract 1000 chars before and add 5000 chars after (functions can be long)
-    const paddedMin = Math.max(0, minOffset - 1000)
-    const paddedMax = Math.min(code.length, maxOffset + 5000)
+    // Subtract chars before and add chars after (functions can be long)
+    const paddedMin = Math.max(0, minOffset - SOURCE_MAP_PADDING_BEFORE)
+    const paddedMax = Math.min(code.length, maxOffset + SOURCE_MAP_PADDING_AFTER)
 
     return { minOffset: paddedMin, maxOffset: paddedMax }
   }
@@ -1675,6 +1675,7 @@ export class CoverageConverter {
             // Create empty coverage for the file
             return await this.createEmptyCoverage(filePath, sourceFile.code)
           } catch {
+            // File loading failed - expected for missing or inaccessible files
             return null
           }
         })
@@ -1741,7 +1742,7 @@ export class CoverageConverter {
 
       return result
     } catch (error) {
-      console.warn(`  ⚠️ Error creating coverage for ${filePath}:`, error)
+      warn(`  ⚠️ Error creating coverage for ${filePath}:`, error)
       return null
     }
   }

@@ -523,16 +523,6 @@ import { loadNextcovConfig } from 'nextcov'
 const config = await loadNextcovConfig('./e2e/playwright.config.ts')
 ```
 
-#### `connectToCDP(options)`
-
-Connects to Node.js server via Chrome DevTools Protocol.
-
-```typescript
-import { connectToCDP } from 'nextcov'
-
-await connectToCDP({ port: 9230 })
-```
-
 #### `V8ServerCoverageCollector`
 
 Collector for server-side V8 coverage using `NODE_V8_COVERAGE` + CDP trigger.

@@ -13,7 +13,7 @@ import libCoverage from 'istanbul-lib-coverage'
 import type { CoverageMap, CoverageMapData, FileCoverageData } from 'istanbul-lib-coverage'
 import type { MergerConfig, MergeOptions, MergeResult, CoverageSummary, CoverageMetric, ReporterType } from './types.js'
 import { DEFAULT_REPORTERS, DEFAULT_WATERMARKS } from './config.js'
-import { log } from './logger.js'
+import { log, formatError } from './logger.js'
 import { DEFAULT_IMPLICIT_LOCATION, IMPLICIT_BRANCH_TYPE } from './constants.js'
 
 // Default configuration
@@ -595,7 +595,8 @@ export class CoverageMerger {
       const content = await fs.readFile(filePath, 'utf-8')
       const data = JSON.parse(content)
       return libCoverage.createCoverageMap(data)
-    } catch {
+    } catch (error) {
+      log(`  Failed to load coverage JSON ${filePath}: ${formatError(error)}`)
       return null
     }
   }

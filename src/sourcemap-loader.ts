@@ -13,6 +13,7 @@ import convertSourceMap from 'convert-source-map'
 import type { SourceMapData, SourceFile, V8Coverage } from './types.js'
 import { DEFAULT_NEXTCOV_CONFIG } from './config.js'
 import { FILE_PROTOCOL, extractNextPath, SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN, normalizeWebpackSourcePath } from './constants.js'
+import { log, formatError } from './logger.js'
 
 export class SourceMapLoader {
   private projectRoot: string
@@ -48,8 +49,8 @@ export class SourceMapLoader {
 
       this.sourceCache.set(url, sourceFile)
       return sourceFile
-    } catch {
-      // File doesn't exist or can't be read - silently skip
+    } catch (error) {
+      log(`  Skipping source ${url}: ${formatError(error)}`)
       return null
     }
   }
@@ -87,7 +88,8 @@ export class SourceMapLoader {
     try {
       const parsed = new URL(url)
       return join(this.projectRoot, decodeURIComponent(parsed.pathname))
-    } catch {
+    } catch (error) {
+      log(`  Invalid URL ${url}: ${formatError(error)}`)
       return null
     }
   }
@@ -101,8 +103,8 @@ export class SourceMapLoader {
     try {
       const mapContent = await fs.readFile(mapFilePath, 'utf-8')
       return JSON.parse(mapContent) as SourceMapData
-    } catch {
-      // External map file doesn't exist, try inline
+    } catch (error) {
+      log(`  External map file not found at ${mapFilePath}.map: ${formatError(error)}`)
     }
 
     // Try inline source map
@@ -127,8 +129,8 @@ export class SourceMapLoader {
         try {
           const mapContent = await fs.readFile(mapPath, 'utf-8')
           return JSON.parse(mapContent) as SourceMapData
-        } catch {
-          // Map file not found
+        } catch (error) {
+          log(`  Source map file not found at ${mapPath}: ${formatError(error)}`)
         }
       }
     }
@@ -149,8 +151,8 @@ export class SourceMapLoader {
         // Handle sectioned sourcemaps (webpack eval-source-map)
         return this.flattenSourceMap(sourceMap)
       }
-    } catch {
-      // Ignore errors - might be a false positive match in source code
+    } catch (error) {
+      log(`  Failed to parse inline source map: ${formatError(error)}`)
     }
 
     // Fallback to manual extraction for edge cases
@@ -161,7 +163,8 @@ export class SourceMapLoader {
         const decoded = Buffer.from(match[1], 'base64').toString('utf-8')
         const sourceMap = JSON.parse(decoded) as SourceMapData
         return this.flattenSourceMap(sourceMap)
-      } catch {
+      } catch (error) {
+        log(`  Failed to decode inline source map: ${formatError(error)}`)
         return null
       }
     }
@@ -236,7 +239,8 @@ export class SourceMapLoader {
       try {
         const decoded = Buffer.from(match[1], 'base64').toString('utf-8')
         return JSON.parse(decoded) as SourceMapData
-      } catch {
+      } catch (error) {
+        log(`  Failed to parse data URL source map: ${formatError(error)}`)
         return null
       }
     }

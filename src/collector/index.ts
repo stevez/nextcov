@@ -22,17 +22,6 @@ export {
 } from './client.js'
 
 export {
-  // Server collector (production mode)
-  ServerCoverageCollector,
-  createServerCollector,
-  connectToCDP,
-  collectServerCoverage,
-  saveServerCoverage,
-  type V8CoverageEntry,
-  type ServerCollectorConfig,
-} from './server.js'
-
-export {
   // Dev mode server collector
   DevModeServerCollector,
   createDevModeServerCollector,
