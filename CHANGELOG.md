@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2024-12-15
+
+### Added
+
+- **Worker thread parallelization** - Large bundles (>100KB) are now processed in parallel using Node.js worker threads
+  - Automatically spawns workers based on CPU cores (min 2, max 8)
+  - New `ast-worker.ts` and `worker-pool.ts` modules for CPU-intensive AST processing
+  - Multiple large bundles process concurrently instead of sequentially
+
+- **Source map range optimization** - Skip processing AST nodes outside the source code range
+  - `computeSrcCodeRange()` analyzes source maps to find byte ranges where actual src code exists
+  - `ignoreNode` callback returns `'ignore-this-and-nested-nodes'` for nodes outside the range
+  - For typical Next.js bundles, this skips 40-96% of the file (bundled dependencies)
+
+### Performance
+
+- **~66% faster** for projects with large bundles containing middleware and Server Actions
+  - Example: 387KB middleware bundle reduced from ~4s to ~0.7s (only 14KB of 387KB maps to src)
+  - Example: 446KB page bundle reduced from ~4s to ~2.3s (183KB of 446KB maps to src)
+  - Two large bundles now process in ~2.4s parallel vs ~7s sequential
+
+### Changed
+
+- Heavy entries (>100KB source) now use `convertEntryWithWorker()` instead of main thread
+- Light entries (<100KB) continue to use main thread batch processing for efficiency
+
 ## [0.6.3] - 2024-12-15
 
 ### Added

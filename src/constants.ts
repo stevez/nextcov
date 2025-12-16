@@ -192,6 +192,30 @@ export function containsSourceRoot(path: string, sourceRoot: string): boolean {
 export const FILE_PROTOCOL = 'file://'
 
 /**
+ * Threshold in bytes for considering a bundle "large" for optimization purposes.
+ * Large server bundles (>300KB) that have >80% redundant sources are skipped.
+ */
+export const LARGE_BUNDLE_THRESHOLD = 300_000 // 300KB
+
+/**
+ * Threshold in bytes for considering an entry "heavy" and processing in worker thread.
+ * Entries larger than 100KB are processed in parallel worker threads for better performance.
+ */
+export const HEAVY_ENTRY_THRESHOLD = 100_000 // 100KB
+
+/**
+ * Batch size for processing coverage entries on the main thread.
+ * Light entries (<100KB) are processed in batches for memory efficiency.
+ */
+export const ENTRY_BATCH_SIZE = 20
+
+/**
+ * Batch size for file reading operations.
+ * Files are read in batches to avoid overwhelming the filesystem.
+ */
+export const FILE_READ_BATCH_SIZE = 50
+
+/**
  * Next.js static assets path segment.
  * Used to identify and parse Next.js bundle URLs.
  */
