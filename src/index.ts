@@ -62,14 +62,6 @@ export {
   filterAppCoverage,
   type PlaywrightCoverageEntry,
   type ClientCollectorConfig,
-  // Server collector (production mode)
-  ServerCoverageCollector,
-  createServerCollector,
-  connectToCDP,
-  collectServerCoverage,
-  saveServerCoverage,
-  type V8CoverageEntry,
-  type ServerCollectorConfig,
   // Dev mode server collector
   DevModeServerCollector,
   createDevModeServerCollector,

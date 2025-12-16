@@ -254,3 +254,22 @@ export const DEFAULT_IMPLICIT_LOCATION = { start: { line: 1, column: 0 }, end: {
  * Istanbul uses 'if' as a generic branch type.
  */
 export const IMPLICIT_BRANCH_TYPE = 'if'
+
+/**
+ * Threshold in bytes for enabling source map range optimization.
+ * Files larger than this will compute the source code range to skip
+ * processing AST nodes outside where source code actually maps to.
+ */
+export const SOURCE_MAP_RANGE_THRESHOLD = 200_000 // 200KB
+
+/**
+ * Padding in bytes before the first source mapping.
+ * Used when computing source code ranges to include some context.
+ */
+export const SOURCE_MAP_PADDING_BEFORE = 1000
+
+/**
+ * Padding in bytes after the last source mapping.
+ * Used when computing source code ranges to include some context.
+ */
+export const SOURCE_MAP_PADDING_AFTER = 5000

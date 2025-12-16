@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [0.7.1] - 2024-12-16
+
+### Changed
+
+- **Refactored CDP utilities** - Extracted common CDP code into `cdp-utils.ts`
+  - `connectToCdp()` - Connect to CDP without starting coverage (for NODE_V8_COVERAGE mode)
+  - `connectAndStartCoverage()` - Connect and start JS coverage collection (for dev mode)
+  - `collectCoverage()` - Generic helper for stop/filter/transform/cleanup pattern
+  - `attachSourceContent()` - Attach source content to coverage entries
+  - `isClientConnected()` - Type-safe client connection check
+  - Both `dev-server.ts` and `v8-server.ts` now use shared utilities
+
+- **Improved error handling** - All empty catch blocks now use named error parameters (`_error`)
+  - Enables ESLint's `caughtErrorsIgnorePattern` rule to track intentionally ignored errors
+  - Prevents future regressions with empty catches
+
+- **Optimized performance timers** - `createTimer()` now returns a no-op function when timing is disabled
+  - Avoids `performance.now()` overhead when logging/timing is off
+
+- **Consistent logging** - Replaced `console.warn` with `warn()` from logger.ts for consistent output
+
+- **Cleaner resource cleanup** - Added `safeClose()` helper for idiomatic resource cleanup in finally blocks
+
+- **Extract magic numbers** - Added new constants to `constants.ts`:
+  - `SOURCE_MAP_RANGE_THRESHOLD` (200KB) - Threshold for enabling source map range optimization
+  - `SOURCE_MAP_PADDING_BEFORE` (1000 bytes) - Padding before source code range
+  - `SOURCE_MAP_PADDING_AFTER` (5000 bytes) - Padding after source code range
+
+### Added
+
+- **`safeJsonParse()` utility** - Helper function for safe JSON parsing with error logging
+- **`formatError()` utility** - Helper to format error objects consistently for logging
+- **Stricter ESLint rules** for production code:
+  - `@typescript-eslint/no-explicit-any` now warns (was off)
+  - Separate rule sets for production and test code
+
+### Removed
+
+- **Removed legacy `server.ts`** - Redundant with `v8-server.ts` which uses NODE_V8_COVERAGE approach
+  - Removed `connectToCDP()` export (was never used internally)
+  - Removed `ServerCoverageCollector` class
+- **Removed `worker-pool.test.ts`** - Test caused Vitest worker crashes on Windows
+
 ## [0.7.0] - 2024-12-15
 
 ### Added

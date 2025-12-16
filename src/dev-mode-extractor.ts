@@ -22,6 +22,7 @@ import {
   normalizeWebpackSourcePath,
 } from './constants.js'
 import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from './config.js'
+import { log, formatError } from './logger.js'
 
 export interface ExtractedSourceMap {
   /** Webpack module ID (e.g., "(app-pages-browser)/./src/components/Button.tsx") */
@@ -103,8 +104,8 @@ export class DevModeSourceMapExtractor {
           results.push(extracted)
           this.sourceMapCache.set(originalPath, extracted)
         }
-      } catch {
-        // Skip invalid source maps
+      } catch (error) {
+        log(`  Skipping invalid source map: ${formatError(error)}`)
       }
     }
 
@@ -179,7 +180,8 @@ export class DevModeSourceMapExtractor {
 
       const content = await response.text()
       return this.extractFromChunkContent(content)
-    } catch {
+    } catch (error) {
+      log(`  Chunk fetch failed for ${chunkUrl}: ${formatError(error)}`)
       return []
     }
   }
@@ -215,8 +217,8 @@ export class DevModeSourceMapExtractor {
         const sourceMaps = await this.extractFromClientChunk(chunkUrl)
         allSourceMaps.push(...sourceMaps)
       }
-    } catch {
-      // Dev server might not be running
+    } catch (error) {
+      log(`  Dev server not available: ${formatError(error)}`)
     }
 
     return this.filterProjectSourceMaps(allSourceMaps)
@@ -268,7 +270,8 @@ export class DevModeSourceMapExtractor {
 
       this.sourceMapCache.set(originalPath, extracted)
       return extracted
-    } catch {
+    } catch (error) {
+      log(`  Failed to extract source map from script: ${formatError(error)}`)
       return null
     }
   }

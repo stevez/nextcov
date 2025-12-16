@@ -20,6 +20,7 @@ vi.mock('../../logger.js', () => ({
   isLoggingEnabled: vi.fn().mockReturnValue(false),
   warn: vi.fn(),
   error: vi.fn(),
+  safeClose: vi.fn(),
 }))
 
 // Mock monocart-coverage-reports CDPClient
@@ -356,10 +357,13 @@ describe('V8ServerCoverageCollector', () => {
       vi.mocked(existsSync).mockReturnValue(true)
       vi.mocked(readdirSync).mockReturnValue([])
 
+      const { safeClose } = await import('../../logger.js')
+
       await collector.connect()
       await collector.collect()
 
-      expect(mockClient.close).toHaveBeenCalled()
+      // Verify safeClose was called with the CDP client
+      expect(safeClose).toHaveBeenCalledWith(mockClient)
     })
   })
 

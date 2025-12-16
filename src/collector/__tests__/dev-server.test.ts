@@ -12,6 +12,7 @@ vi.mock('../../logger.js', () => ({
   isLoggingEnabled: vi.fn().mockReturnValue(false),
   warn: vi.fn(),
   error: vi.fn(),
+  safeClose: vi.fn(),
 }))
 
 // Mock monocart-coverage-reports CDPClient
@@ -229,10 +230,13 @@ describe('DevModeServerCollector', () => {
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
+      const { safeClose } = await import('../../logger.js')
+
       await collector.connect()
       await collector.collect()
 
-      expect(mockClient.close).toHaveBeenCalled()
+      // Verify safeClose was called with the client
+      expect(safeClose).toHaveBeenCalledWith(mockClient)
       expect(collector['client']).toBeNull()
     })
   })

@@ -311,7 +311,8 @@ export async function loadNextcovConfig(configPath?: string): Promise<ResolvedNe
     cachedConfigPath = searchPath
     return cachedConfig
   } catch {
-    // Fall back to defaults if config can't be loaded
+    // Config file not found or invalid - fall back to defaults
+    // This is expected when no playwright.config.ts exists
     cachedConfig = resolveNextcovConfig()
     cachedConfigPath = searchPath
     return cachedConfig
