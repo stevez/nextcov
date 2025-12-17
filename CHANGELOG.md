@@ -2,7 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.7.2] - 2024-12-17
+
+### Fixed
+
+- **Arrow function export coverage** - Fixed incorrect function coverage percentages for arrow function exports
+  - V8 CDP creates duplicate function entries for `export const Foo = () => {...}` patterns:
+    - One entry for the arrow function body (with execution counts)
+    - One entry for the export binding/assignment (typically with 0 executions)
+  - This caused coverage to show 66.67% (4/6 functions) instead of 100% (3/3 functions)
+  - New `removeDuplicateFunctionEntries()` method groups functions by declaration position and removes duplicates with lower execution counts
+  - The fix keeps the arrow function body entry and discards the export binding entry
 
 ## [0.7.1] - 2024-12-16
 

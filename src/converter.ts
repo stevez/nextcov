@@ -388,6 +388,10 @@ export class CoverageConverter {
     // which causes V8 to not properly track function declaration coverage
     this.fixFunctionDeclarationStatements(normalizedMap)
 
+    // Remove duplicate function entries created by V8 CDP for arrow function exports
+    // This fixes incorrect function coverage percentages (e.g., 4/6 = 66% instead of 3/3 = 100%)
+    this.removeDuplicateFunctionEntries(normalizedMap)
+
     endConvert()
     return normalizedMap
   }
@@ -844,6 +848,103 @@ export class CoverageConverter {
             // Statement has 0 hits but function on same line was called - fix it
             s[stmtId] = fnCalls
           }
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove duplicate function entries created by V8 CDP for arrow function exports.
+   *
+   * V8's Chrome DevTools Protocol creates duplicate function entries for arrow function exports:
+   * - One for the arrow function body (e.g., line 28-42)
+   * - One for the export binding/assignment (e.g., line 27-42)
+   *
+   * The export binding often has 0 execution count even though the function was called,
+   * causing incorrect function coverage percentages (e.g., 4/6 = 66% instead of 3/3 = 100%).
+   *
+   * This fix detects duplicates by matching declaration positions and removes the ones
+   * with lower execution counts, preferring function bodies over export bindings.
+   */
+  private removeDuplicateFunctionEntries(coverageMap: CoverageMap): void {
+    for (const filePath of coverageMap.files()) {
+      const fileCoverage = coverageMap.fileCoverageFor(filePath)
+      const data = (fileCoverage as unknown as { data: CoverageMapData[string] }).data
+      const fnMap = data.fnMap as Record<
+        string,
+        {
+          name: string
+          decl: {
+            start: { line: number; column: number }
+            end: { line: number; column: number | null }
+          }
+          loc: {
+            start: { line: number; column: number }
+            end: { line: number; column: number | null }
+          }
+          line: number
+        }
+      >
+      const f = data.f as Record<string, number>
+
+      // Group functions by declaration position (line:column)
+      const byPosition = new Map<
+        string,
+        Array<{
+          id: string
+          fn: (typeof fnMap)[string]
+          count: number
+          bodyStartLine: number | undefined
+        }>
+      >()
+
+      for (const [id, fn] of Object.entries(fnMap)) {
+        const declStart = fn.decl?.start
+        if (!declStart) continue
+
+        const key = `${declStart.line}:${declStart.column}`
+        if (!byPosition.has(key)) {
+          byPosition.set(key, [])
+        }
+
+        byPosition.get(key)!.push({
+          id,
+          fn,
+          count: f[id] || 0,
+          bodyStartLine: fn.loc?.start?.line,
+        })
+      }
+
+      // For each position with multiple functions, keep only the best one
+      for (const [, functions] of byPosition) {
+        if (functions.length <= 1) continue
+
+        // Sort to find the best function to keep:
+        // 1. Prefer higher execution count
+        // 2. If tied, prefer function body starting on different line (actual function)
+        //    vs. body starting on same line (export binding)
+        functions.sort((a, b) => {
+          // Primary: highest execution count wins
+          if (a.count !== b.count) return b.count - a.count
+
+          // Secondary: prefer function body on different line than declaration
+          // (export bindings have body starting on same line as declaration)
+          const aDeclLine = a.fn.decl.start.line
+          const bDeclLine = b.fn.decl.start.line
+          const aBodyOnSameLine = a.bodyStartLine === aDeclLine
+          const bBodyOnSameLine = b.bodyStartLine === bDeclLine
+
+          if (aBodyOnSameLine !== bBodyOnSameLine) {
+            return aBodyOnSameLine ? 1 : -1 // Prefer body on different line
+          }
+
+          return 0
+        })
+
+        // Keep the first (best) function, remove all others
+        for (let i = 1; i < functions.length; i++) {
+          delete fnMap[functions[i].id]
+          delete f[functions[i].id]
         }
       }
     }
