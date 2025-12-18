@@ -652,9 +652,14 @@ export class CoverageConverter {
           loc: { start: { line: number; column?: number | null }; end: { line: number; column?: number | null } }
         }>
         f: Record<string, number>
+        statementMap: Record<string, {
+          start: { line: number; column?: number | null }
+          end: { line: number; column?: number | null }
+        }>
+        s: Record<string, number>
       }
 
-      const { fnMap, f } = data
+      const { fnMap, f, statementMap, s } = data
 
       // Read source file to check which lines contain array method calls
       let sourceCode: string
@@ -665,7 +670,10 @@ export class CoverageConverter {
       }
 
       const sourceLines = sourceCode.split('\n')
-      const functionsToRemove: string[] = []
+      const functionsToRemove: Array<{
+        id: string
+        loc: { start: { line: number; column?: number | null }; end: { line: number; column?: number | null } }
+      }> = []
 
       // Check each anonymous function
       for (const [id, fn] of Object.entries(fnMap)) {
@@ -700,14 +708,29 @@ export class CoverageConverter {
                        (sourceLine.includes('=>') && nextLine.trim().startsWith('<'))
 
         if (hasJsx) {
-          functionsToRemove.push(id)
+          functionsToRemove.push({ id, loc: fn.loc })
         }
       }
 
-      // Remove the identified functions
-      for (const id of functionsToRemove) {
+      // Remove the identified functions and their statements
+      for (const { id, loc } of functionsToRemove) {
         delete fnMap[id]
         delete f[id]
+
+        // Also remove statements that fall within this function's range
+        // This matches Vitest's behavior of filtering both functions and their statements
+        if (loc?.start?.line && loc?.end?.line) {
+          const startLine = loc.start.line
+          const endLine = loc.end.line
+
+          for (const [stmtId, stmtLoc] of Object.entries(statementMap)) {
+            const stmtStartLine = stmtLoc?.start?.line
+            if (stmtStartLine && stmtStartLine >= startLine && stmtStartLine <= endLine) {
+              delete statementMap[stmtId]
+              delete s[stmtId]
+            }
+          }
+        }
       }
     }
 

@@ -25,6 +25,8 @@ vi.mock('../logger.js', () => ({
 }))
 
 // Helper to create a coverage map with test data
+// Note: We start at line 2 (not line 1) and column 1 (not column 0) to avoid
+// false positive directive detection (L1:0 is treated as 'use client'/'use server')
 function createTestCoverageMap(files: Record<string, {
   statements?: Record<string, number>
   functions?: Record<string, number>
@@ -39,7 +41,7 @@ function createTestCoverageMap(files: Record<string, {
         ? Object.fromEntries(
             Object.keys(coverage.statements).map((k, i) => [
               k,
-              { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } },
+              { start: { line: i + 2, column: 1 }, end: { line: i + 2, column: 10 } },
             ])
           )
         : {},
@@ -49,9 +51,9 @@ function createTestCoverageMap(files: Record<string, {
               k,
               {
                 name: `fn${k}`,
-                decl: { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } },
-                loc: { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } },
-                line: i + 1,
+                decl: { start: { line: i + 2, column: 1 }, end: { line: i + 2, column: 10 } },
+                loc: { start: { line: i + 2, column: 1 }, end: { line: i + 2, column: 10 } },
+                line: i + 2,
               },
             ])
           )
@@ -62,12 +64,12 @@ function createTestCoverageMap(files: Record<string, {
               k,
               {
                 type: 'if',
-                loc: { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } },
+                loc: { start: { line: i + 2, column: 1 }, end: { line: i + 2, column: 10 } },
                 locations: [
-                  { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 5 } },
-                  { start: { line: i + 1, column: 5 }, end: { line: i + 1, column: 10 } },
+                  { start: { line: i + 2, column: 1 }, end: { line: i + 2, column: 5 } },
+                  { start: { line: i + 2, column: 5 }, end: { line: i + 2, column: 10 } },
                 ],
-                line: i + 1,
+                line: i + 2,
               },
             ])
           )
@@ -161,8 +163,8 @@ describe('CoverageMerger', () => {
       const result = await merger.merge(map)
       const coverage = getFileCoverageData(result, '/test.ts')
 
-      // Should have added implicit branch
-      expect(Object.keys(coverage.branchMap).length).toBeGreaterThan(0)
+      // Should NOT add implicit branch (we removed fixEmptyBranches to preserve E2E totals)
+      expect(Object.keys(coverage.branchMap).length).toBe(0)
     })
   })
 
@@ -309,7 +311,7 @@ describe('CoverageMerger - mergeWithBase', () => {
 })
 
 describe('CoverageMerger - fixes', () => {
-  it('should fix empty branches', async () => {
+  it('should not add implicit branches (preserves E2E totals)', async () => {
     const merger = new CoverageMerger({ applyFixes: true })
     const map = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 }, functions: { '0': 1 } },
@@ -318,12 +320,11 @@ describe('CoverageMerger - fixes', () => {
     const result = await merger.merge(map)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have added implicit branch
-    expect(Object.keys(coverage.branchMap).length).toBeGreaterThan(0)
-    expect(coverage.b['0']).toBeDefined()
+    // Should NOT add implicit branch (we removed fixEmptyBranches to preserve E2E totals)
+    expect(Object.keys(coverage.branchMap).length).toBe(0)
   })
 
-  it('should fix empty functions', async () => {
+  it('should not add implicit functions (preserves E2E totals)', async () => {
     const merger = new CoverageMerger({ applyFixes: true })
     const map = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 } },
@@ -332,11 +333,11 @@ describe('CoverageMerger - fixes', () => {
     const result = await merger.merge(map)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have added implicit function
-    expect(Object.keys(coverage.fnMap).length).toBeGreaterThan(0)
+    // Should NOT have added implicit function (we removed fixEmptyFunctions to preserve E2E totals)
+    expect(Object.keys(coverage.fnMap).length).toBe(0)
   })
 
-  it('should mark implicit branch as covered when statement was covered', async () => {
+  it('should preserve empty branches when source has none', async () => {
     const merger = new CoverageMerger({ applyFixes: true })
     const map = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 } },
@@ -345,11 +346,12 @@ describe('CoverageMerger - fixes', () => {
     const result = await merger.merge(map)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Implicit branch should be marked as covered since statement was covered
-    expect(coverage.b['0'][0]).toBeGreaterThan(0)
+    // Should NOT add any branches - preserve source coverage exactly
+    expect(Object.keys(coverage.branchMap).length).toBe(0)
+    expect(Object.keys(coverage.b).length).toBe(0)
   })
 
-  it('should mark implicit branch as uncovered when no statements covered', async () => {
+  it('should preserve empty branches when no statements covered', async () => {
     const merger = new CoverageMerger({ applyFixes: true })
     const map = createTestCoverageMap({
       '/test.ts': { statements: { '0': 0 } },
@@ -358,13 +360,14 @@ describe('CoverageMerger - fixes', () => {
     const result = await merger.merge(map)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Implicit branch should be uncovered
-    expect(coverage.b['0'][0]).toBe(0)
+    // Should NOT add any branches - preserve source coverage exactly
+    expect(Object.keys(coverage.branchMap).length).toBe(0)
+    expect(Object.keys(coverage.b).length).toBe(0)
   })
 })
 
 describe('CoverageMerger - structure preference', () => {
-  it('should use more-items structure preference by default', async () => {
+  it('should prefer last source structure (E2E convention)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 } },
@@ -376,8 +379,24 @@ describe('CoverageMerger - structure preference', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have 3 statements (more items wins)
+    // Should have 3 statements (last source wins - E2E convention)
     expect(Object.keys(coverage.statementMap).length).toBe(3)
+  })
+
+  it('should prefer last source even when it has fewer items', async () => {
+    const merger = new CoverageMerger({ applyFixes: false })
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1, '1': 1, '2': 1 } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 0 } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Should have 1 statement (last source wins, even with fewer items)
+    expect(Object.keys(coverage.statementMap).length).toBe(1)
   })
 })
 
@@ -639,34 +658,38 @@ describe('printCoverageComparison', () => {
 })
 
 describe('CoverageMerger - merge functions with different structures', () => {
-  it('should merge when additional has more functions', async () => {
+  it('should prefer last source when statements are provided (E2E convention)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
+    // Include statements to trigger structure selection logic
     const map1 = createTestCoverageMap({
-      '/test.ts': { functions: { '0': 1 } },
+      '/test.ts': { statements: { '0': 1 }, functions: { '0': 1, '1': 1, '2': 1 } },
     })
     const map2 = createTestCoverageMap({
-      '/test.ts': { functions: { '0': 1, '1': 1, '2': 1 } },
+      '/test.ts': { statements: { '0': 1 }, functions: { '0': 1 } },
     })
 
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    expect(Object.keys(coverage.fnMap).length).toBe(3)
+    // Last source wins (E2E convention) - should have 1 function from map2
+    expect(Object.keys(coverage.fnMap).length).toBe(1)
   })
 
-  it('should merge when additional has more branches', async () => {
+  it('should prefer last source branches when statements are provided (E2E convention)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
+    // Include statements to trigger structure selection logic
     const map1 = createTestCoverageMap({
-      '/test.ts': { branches: { '0': [1, 0] } },
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [1, 0], '1': [1, 1] } },
     })
     const map2 = createTestCoverageMap({
-      '/test.ts': { branches: { '0': [0, 1], '1': [1, 1] } },
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [0, 1] } },
     })
 
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    expect(Object.keys(coverage.branchMap).length).toBe(2)
+    // Last source wins (E2E convention) - should have 1 branch from map2
+    expect(Object.keys(coverage.branchMap).length).toBe(1)
   })
 })
 
