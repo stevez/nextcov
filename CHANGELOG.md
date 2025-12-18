@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2024-12-18
+
+### Changed
+
+- **Merged coverage totals now exactly match E2E** - Removed `fixEmptyBranches` and `fixEmptyFunctions` which were artificially inflating coverage totals
+  - Previously, files with 0 branches would get +1 implicit branch added
+  - Previously, files with 0 functions would get +1 implicit function added
+  - Now merged totals preserve E2E coverage totals exactly (0 diff)
+  - E2E coverage is treated as the source of truth for totals
+
+- **Improved source selection for merge** - `selectBestSource` now considers branches and functions, not just statements
+  - Previously, files with branches/functions but 0 statements would fall back to Unit coverage (which often had no data)
+  - Now correctly selects E2E coverage when it has branches/functions that Unit doesn't have
+  - Fixes issue where E2E branches were being lost during merge
+
+### Removed
+
+- **Removed `fixEmptyBranches`** - No longer adds implicit branches to files with 0 branches
+- **Removed `fixEmptyFunctions`** - No longer adds implicit functions to files with 0 functions
+
 ## [0.7.5] - 2024-12-17
 
 ### Improved

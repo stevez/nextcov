@@ -14,7 +14,8 @@ import type { CoverageMap, CoverageMapData, FileCoverageData } from 'istanbul-li
 import type { MergerConfig, MergeOptions, MergeResult, CoverageSummary, CoverageMetric, ReporterType } from './types.js'
 import { DEFAULT_REPORTERS, DEFAULT_WATERMARKS } from './config.js'
 import { log, formatError } from './logger.js'
-import { DEFAULT_IMPLICIT_LOCATION, IMPLICIT_BRANCH_TYPE } from './constants.js'
+// Note: DEFAULT_IMPLICIT_LOCATION and IMPLICIT_BRANCH_TYPE were used by fixEmptyBranches
+// which has been removed to preserve source coverage totals exactly
 
 // Default configuration
 const DEFAULT_MERGER_CONFIG: MergerConfig = {
@@ -259,7 +260,9 @@ export class CoverageMerger {
   }
 
   /**
-   * Merge multiple file coverages using max strategy with independent per-metric structure selection
+   * Merge multiple file coverages using "more items wins" strategy per metric.
+   * Picks the source with more items for each metric type, then merges execution counts.
+   * Total statement/function/branch counts remain the same as the source with more items.
    */
   private mergeFileCoveragesMax(coverages: FileCoverageData[]): FileCoverageData {
     if (coverages.length === 0) {
@@ -269,21 +272,17 @@ export class CoverageMerger {
       return JSON.parse(JSON.stringify(coverages[0]))
     }
 
-    // Find best structure for each metric independently
-    const bestStatements = coverages.reduce((best, current) =>
-      Object.keys(current.statementMap || {}).length > Object.keys(best.statementMap || {}).length ? current : best
-    )
-    const bestFunctions = coverages.reduce((best, current) =>
-      Object.keys(current.fnMap || {}).length > Object.keys(best.fnMap || {}).length ? current : best
-    )
-    const bestBranches = coverages.reduce((best, current) =>
-      Object.keys(current.branchMap || {}).length > Object.keys(best.branchMap || {}).length ? current : best
-    )
+    // Find best structure - prefer E2E (without directives) for consistency
+    // E2E coverage is more accurate for totals since it doesn't count directives
+    const bestSource = this.selectBestSource(coverages)
+    const bestStatements = bestSource
+    const bestFunctions = bestSource
+    const bestBranches = bestSource
 
-    // Build lookup maps for all coverages
+    // Build lookup maps for all coverages (for merging execution counts)
     const allLookups = coverages.map(buildLookups)
 
-    // Start with best structure for each metric
+    // Start with best structure for each metric (deep copy)
     const merged: FileCoverageData = {
       path: coverages[0].path,
       statementMap: JSON.parse(JSON.stringify(bestStatements.statementMap)),
@@ -294,12 +293,13 @@ export class CoverageMerger {
       b: JSON.parse(JSON.stringify(bestBranches.b)),
     }
 
-    // Merge statement counts from all sources
+    // Merge statement counts from all sources (by line, since columns may differ)
     for (const [key, loc] of Object.entries(merged.statementMap) as [string, Location][]) {
       const locKey = locationKey(loc)
       const line = lineKey(loc)
       let maxCount = merged.s[key] || 0
       for (const lookup of allLookups) {
+        // Try exact match first, then fall back to line-based match
         const count = lookup.stmts.get(locKey) ?? lookup.stmtsByLine.get(line)
         if (count !== undefined && count > maxCount) {
           maxCount = count
@@ -337,7 +337,131 @@ export class CoverageMerger {
       }
     }
 
+    // Handle directive statements (e.g., 'use client', 'use server') that only
+    // appear in one source. Mark them as covered if file has any other coverage.
+    this.filterDirectiveStatements(merged, coverages)
+
     return merged
+  }
+
+  /**
+   * Select the best source coverage for structure.
+   * Prefers coverage WITHOUT L1:0 directive statements (E2E-style).
+   * E2E coverage is more accurate because it doesn't count non-executable directives.
+   *
+   * Rules:
+   * 1. Filter out sources with no coverage data (0 statements AND 0 branches AND 0 functions)
+   * 2. Among remaining sources, prefer those without L1:0 directives
+   * 3. Among sources without directives, prefer the LAST one (E2E by convention)
+   */
+  private selectBestSource(coverages: FileCoverageData[]): FileCoverageData {
+    // Helper to count total items (statements + branches + functions)
+    const getTotalItems = (cov: FileCoverageData): number => {
+      return (
+        Object.keys(cov.statementMap || {}).length +
+        Object.keys(cov.branchMap || {}).length +
+        Object.keys(cov.fnMap || {}).length
+      )
+    }
+
+    // Filter out sources with no coverage data at all
+    // Preserve original indices for "prefer last" logic
+    const nonEmptyWithIndex = coverages
+      .map((cov, idx) => ({ cov, idx }))
+      .filter(({ cov }) => getTotalItems(cov) > 0)
+
+    // If all sources are empty, just return the first one
+    if (nonEmptyWithIndex.length === 0) {
+      return coverages[0]
+    }
+
+    // If only one source has data, use it
+    if (nonEmptyWithIndex.length === 1) {
+      return nonEmptyWithIndex[0].cov
+    }
+
+    // Check which coverages have L1:0 directive statements
+    const withDirective: { cov: FileCoverageData; idx: number }[] = []
+    const withoutDirective: { cov: FileCoverageData; idx: number }[] = []
+
+    for (const item of nonEmptyWithIndex) {
+      const hasDirective = Object.values(item.cov.statementMap || {}).some(
+        (loc: unknown) => {
+          const typedLoc = loc as Location
+          return typedLoc.start.line === 1 && (typedLoc.start.column === 0 || typedLoc.start.column === null)
+        }
+      )
+      if (hasDirective) {
+        withDirective.push(item)
+      } else {
+        withoutDirective.push(item)
+      }
+    }
+
+    // Prefer coverage without directive (E2E-style)
+    if (withoutDirective.length > 0) {
+      // Among sources without directives, prefer the LAST one in the original array
+      // By convention, E2E is passed last when merging
+      const lastItem = withoutDirective.reduce((best, current) =>
+        current.idx > best.idx ? current : best
+      )
+      return lastItem.cov
+    }
+
+    // All non-empty sources have directives - pick the one with fewer items (less directive inflation)
+    return nonEmptyWithIndex.reduce((best, current) =>
+      getTotalItems(current.cov) < getTotalItems(best.cov) ? current : best
+    ).cov
+  }
+
+  /**
+   * Handle directive statements ('use client', 'use server') that only appear in one source.
+   *
+   * These directives are at line 1, column 0 and:
+   * - Vitest counts them as statements (parses original source)
+   * - V8/Next.js coverage doesn't track them (not executable)
+   *
+   * When merging, if one source has a L1:0 statement and another doesn't have any
+   * statements on line 1, we assume it's a directive. Since directives are automatically
+   * "executed" when the file is loaded, we mark them as covered if the file has any
+   * other coverage.
+   */
+  private filterDirectiveStatements(data: FileCoverageData, coverages: FileCoverageData[]): void {
+    // Find if merged has a L1:0 statement
+    let directiveKey: string | null = null
+    for (const [key, loc] of Object.entries(data.statementMap) as [string, Location][]) {
+      if (loc.start.line === 1 && (loc.start.column === 0 || loc.start.column === null)) {
+        directiveKey = key
+        break
+      }
+    }
+
+    if (!directiveKey) return
+
+    // Check if any source lacks line 1 statements (indicating it's a directive that
+    // the runtime didn't track)
+    let anySourceMissingLine1 = false
+    for (const cov of coverages) {
+      const hasLine1 = Object.values(cov.statementMap || {}).some(
+        (loc: unknown) => (loc as Location).start.line === 1
+      )
+      if (!hasLine1) {
+        anySourceMissingLine1 = true
+        break
+      }
+    }
+
+    if (!anySourceMissingLine1) return
+
+    // It's a directive statement. Check if the file has any other coverage.
+    // If so, mark the directive as covered (count = 1) since directives are
+    // "executed" when the file is loaded.
+    const hasAnyCoverage = Object.values(data.s).some((count) => count > 0) ||
+                           Object.values(data.f).some((count) => count > 0)
+
+    if (hasAnyCoverage && (data.s[directiveKey] || 0) === 0) {
+      data.s[directiveKey] = 1
+    }
   }
 
   /**
@@ -501,86 +625,13 @@ export class CoverageMerger {
 
   /**
    * Apply fixes to coverage map
+   * Note: We no longer call fixEmptyBranches() or fixEmptyFunctions() because they
+   * inflate the counts beyond what the source coverage files report.
+   * E2E coverage is the source of truth for totals.
    */
-  private applyFixes(coverageMap: CoverageMap): void {
-    this.fixEmptyBranches(coverageMap)
-    this.fixEmptyFunctions(coverageMap)
-  }
-
-  /**
-   * Fix files with 0/0 branches by adding implicit branch
-   */
-  private fixEmptyBranches(coverageMap: CoverageMap): void {
-    for (const filePath of coverageMap.files()) {
-      const fileCoverage = coverageMap.fileCoverageFor(filePath)
-      const data = fileCoverage.toJSON() as {
-        branchMap: Record<string, unknown>
-        b: Record<string, number[]>
-        s: Record<string, number>
-        f: Record<string, number>
-      }
-
-      const hasBranches = Object.keys(data.branchMap).length > 0
-
-      if (!hasBranches) {
-        const anyStatementCovered = Object.values(data.s).some((c) => c > 0)
-        const anyFunctionCovered = Object.values(data.f).some((c) => c > 0)
-        const wasLoaded = anyStatementCovered || anyFunctionCovered
-
-        data.branchMap = {
-          '0': {
-            type: IMPLICIT_BRANCH_TYPE,
-            loc: DEFAULT_IMPLICIT_LOCATION,
-            locations: [DEFAULT_IMPLICIT_LOCATION],
-          },
-        }
-        data.b = { '0': wasLoaded ? [1] : [0] }
-
-        // Update the coverage map with the fixed data
-        coverageMap.addFileCoverage(data as CoverageMapData[string])
-      }
-    }
-  }
-
-  /**
-   * Fix files with 0/0 functions by adding implicit function
-   * This prevents misleading "100% Functions 0/0" display in coverage reports
-   */
-  private fixEmptyFunctions(coverageMap: CoverageMap): void {
-    for (const filePath of coverageMap.files()) {
-      const fileCoverage = coverageMap.fileCoverageFor(filePath)
-      const data = fileCoverage.toJSON() as {
-        fnMap: Record<string, unknown>
-        f: Record<string, number>
-        s: Record<string, number>
-        b: Record<string, number[]>
-      }
-
-      const hasFunctions = Object.keys(data.fnMap).length > 0
-
-      if (!hasFunctions) {
-        // Check if any statement or branch was covered (indicates module was loaded)
-        const anyStatementCovered = Object.values(data.s).some((c) => c > 0)
-        const anyBranchCovered = Object.values(data.b).some((counts) =>
-          counts.some((c) => c > 0)
-        )
-        const wasLoaded = anyStatementCovered || anyBranchCovered
-
-        // Add implicit "module initialization" function
-        data.fnMap = {
-          '0': {
-            name: '(module)',
-            decl: DEFAULT_IMPLICIT_LOCATION,
-            loc: DEFAULT_IMPLICIT_LOCATION,
-            line: 1,
-          },
-        }
-        data.f = { '0': wasLoaded ? 1 : 0 }
-
-        // Update the coverage map with the fixed data
-        coverageMap.addFileCoverage(data as CoverageMapData[string])
-      }
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private applyFixes(_coverageMap: CoverageMap): void {
+    // No fixes applied - preserve source coverage totals exactly
   }
 
   /**
