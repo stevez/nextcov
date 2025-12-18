@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach } from 'vitest'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
@@ -228,6 +227,7 @@ describe('SourceMapLoader', () => {
         version: 3 as const,
         sources: ['src/index.ts', 'src/utils.ts'],
         mappings: '',
+        names: [],
       }
 
       const result = loader.resolveOriginalPath(sourceMap, 0)
@@ -240,6 +240,7 @@ describe('SourceMapLoader', () => {
         sources: ['index.ts'],
         sourceRoot: 'src',
         mappings: '',
+        names: [],
       }
 
       const result = loader.resolveOriginalPath(sourceMap, 0)
@@ -251,6 +252,7 @@ describe('SourceMapLoader', () => {
         version: 3 as const,
         sources: ['src/index.ts'],
         mappings: '',
+        names: [],
       }
 
       const result = loader.resolveOriginalPath(sourceMap, 5)
@@ -272,6 +274,7 @@ describe('SourceMapLoader', () => {
         version: 3 as const,
         sources: ['webpack://my-app/src/components/Button.tsx'],
         mappings: '',
+        names: [],
       }
 
       const result = loader.resolveOriginalPath(sourceMap, 0)
@@ -286,6 +289,7 @@ describe('SourceMapLoader', () => {
         sources: ['src/index.ts'],
         sourcesContent: ['const x = 1;'],
         mappings: '',
+        names: [],
       }
 
       const result = loader.getOriginalSource(sourceMap, 0)
@@ -298,6 +302,7 @@ describe('SourceMapLoader', () => {
         sources: ['src/index.ts'],
         sourcesContent: ['const x = 1;'],
         mappings: '',
+        names: [],
       }
 
       const result = loader.getOriginalSource(sourceMap, 5)
@@ -309,6 +314,7 @@ describe('SourceMapLoader', () => {
         version: 3 as const,
         sources: ['src/index.ts'],
         mappings: '',
+        names: [],
       }
 
       const result = loader.getOriginalSource(sourceMap, 0)
@@ -321,6 +327,7 @@ describe('SourceMapLoader', () => {
         sources: ['src/index.ts', 'src/utils.ts'],
         sourcesContent: ['const x = 1;', null],
         mappings: '',
+        names: [],
       }
 
       const result = loader.getOriginalSource(sourceMap, 1)
@@ -352,10 +359,12 @@ describe('SourceMapLoader', () => {
         result: [],
         'source-map-cache': {
           [fileUrl]: {
+            lineLengths: [10, 20],
             data: {
               version: 3 as const,
               sources: ['index.ts'],
               mappings: 'AAAA',
+              names: [],
             },
           },
         },
@@ -382,10 +391,12 @@ describe('SourceMapLoader', () => {
         result: [],
         'source-map-cache': {
           [fileUrl]: {
+            lineLengths: [10, 20],
             data: {
               version: 3 as const,
               sources: ['index.ts'],
               mappings: 'BBBB',
+              names: [],
             },
           },
         },

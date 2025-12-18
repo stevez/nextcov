@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import libCoverage from 'istanbul-lib-coverage'
-import type { CoverageMap } from 'istanbul-lib-coverage'
+import type { CoverageMap, CoverageMapData, FileCoverageData } from 'istanbul-lib-coverage'
 import {
   CoverageMerger,
   createMerger,
@@ -31,7 +30,7 @@ function createTestCoverageMap(files: Record<string, {
   functions?: Record<string, number>
   branches?: Record<string, number[]>
 }>): CoverageMap {
-  const data: Record<string, unknown> = {}
+  const data: CoverageMapData = {}
 
   for (const [filePath, coverage] of Object.entries(files)) {
     data[filePath] = {
@@ -68,6 +67,7 @@ function createTestCoverageMap(files: Record<string, {
                   { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 5 } },
                   { start: { line: i + 1, column: 5 }, end: { line: i + 1, column: 10 } },
                 ],
+                line: i + 1,
               },
             ])
           )
@@ -79,6 +79,11 @@ function createTestCoverageMap(files: Record<string, {
   }
 
   return libCoverage.createCoverageMap(data)
+}
+
+// Helper to get typed file coverage data
+function getFileCoverageData(coverageMap: CoverageMap, filePath: string): FileCoverageData {
+  return coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
 }
 
 describe('CoverageMerger', () => {
@@ -128,7 +133,7 @@ describe('CoverageMerger', () => {
       })
 
       const result = await merger.merge(map1, map2)
-      const coverage = result.fileCoverageFor('/test.ts').toJSON()
+      const coverage = getFileCoverageData(result, '/test.ts')
 
       expect(coverage.s['0']).toBeGreaterThanOrEqual(1)
       expect(coverage.s['1']).toBeGreaterThanOrEqual(2)
@@ -154,7 +159,7 @@ describe('CoverageMerger', () => {
       })
 
       const result = await merger.merge(map)
-      const coverage = result.fileCoverageFor('/test.ts').toJSON()
+      const coverage = getFileCoverageData(result, '/test.ts')
 
       // Should have added implicit branch
       expect(Object.keys(coverage.branchMap).length).toBeGreaterThan(0)
@@ -172,7 +177,7 @@ describe('CoverageMerger', () => {
       })
 
       const result = await addMerger.merge(map1, map2)
-      const coverage = result.fileCoverageFor('/test.ts').toJSON()
+      const coverage = getFileCoverageData(result, '/test.ts')
 
       expect(coverage.s['0']).toBeGreaterThanOrEqual(1)
     })
@@ -189,7 +194,7 @@ describe('CoverageMerger', () => {
       })
 
       const result = await firstMerger.merge(map1, map2)
-      const coverage = result.fileCoverageFor('/test.ts').toJSON()
+      const coverage = getFileCoverageData(result, '/test.ts')
 
       // Both maps have 2 statements, counts from second should be merged into first
       expect(Object.keys(coverage.statementMap)).toHaveLength(2)
@@ -209,7 +214,7 @@ describe('CoverageMerger', () => {
       })
 
       const result = await lastMerger.merge(map1, map2)
-      const coverage = result.fileCoverageFor('/test.ts').toJSON()
+      const coverage = getFileCoverageData(result, '/test.ts')
 
       // Last map has 2 statements
       expect(Object.keys(coverage.statementMap)).toHaveLength(2)
@@ -311,7 +316,7 @@ describe('CoverageMerger - fixes', () => {
     })
 
     const result = await merger.merge(map)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     // Should have added implicit branch
     expect(Object.keys(coverage.branchMap).length).toBeGreaterThan(0)
@@ -325,7 +330,7 @@ describe('CoverageMerger - fixes', () => {
     })
 
     const result = await merger.merge(map)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     // Should have added implicit function
     expect(Object.keys(coverage.fnMap).length).toBeGreaterThan(0)
@@ -338,7 +343,7 @@ describe('CoverageMerger - fixes', () => {
     })
 
     const result = await merger.merge(map)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     // Implicit branch should be marked as covered since statement was covered
     expect(coverage.b['0'][0]).toBeGreaterThan(0)
@@ -351,7 +356,7 @@ describe('CoverageMerger - fixes', () => {
     })
 
     const result = await merger.merge(map)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     // Implicit branch should be uncovered
     expect(coverage.b['0'][0]).toBe(0)
@@ -369,7 +374,7 @@ describe('CoverageMerger - structure preference', () => {
     })
 
     const result = await merger.merge(map1, map2)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     // Should have 3 statements (more items wins)
     expect(Object.keys(coverage.statementMap).length).toBe(3)
@@ -644,7 +649,7 @@ describe('CoverageMerger - merge functions with different structures', () => {
     })
 
     const result = await merger.merge(map1, map2)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     expect(Object.keys(coverage.fnMap).length).toBe(3)
   })
@@ -659,7 +664,7 @@ describe('CoverageMerger - merge functions with different structures', () => {
     })
 
     const result = await merger.merge(map1, map2)
-    const coverage = result.fileCoverageFor('/test.ts').toJSON()
+    const coverage = getFileCoverageData(result, '/test.ts')
 
     expect(Object.keys(coverage.branchMap).length).toBe(2)
   })

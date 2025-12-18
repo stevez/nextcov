@@ -273,3 +273,21 @@ export const SOURCE_MAP_PADDING_BEFORE = 1000
  * Used when computing source code ranges to include some context.
  */
 export const SOURCE_MAP_PADDING_AFTER = 5000
+
+/**
+ * Maximum number of entries in the file exists cache.
+ * Prevents unbounded memory growth in long-running processes.
+ */
+export const FILE_EXISTS_CACHE_MAX_SIZE = 10_000
+
+/**
+ * Maximum number of entries in the source map cache.
+ * Each entry can be several KB, so we limit to prevent memory issues.
+ */
+export const SOURCE_MAP_CACHE_MAX_SIZE = 1_000
+
+/**
+ * Maximum number of entries in the source file cache.
+ * Each entry contains source code which can be large.
+ */
+export const SOURCE_CACHE_MAX_SIZE = 500

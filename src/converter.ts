@@ -19,7 +19,19 @@ import { SourceMapLoader } from './sourcemap-loader.js'
 import { log, warn, createTimer, formatError } from './logger.js'
 import { normalizePath } from './config.js'
 import { getWorkerPool } from './worker-pool.js'
-import { FILE_PROTOCOL, LARGE_BUNDLE_THRESHOLD, HEAVY_ENTRY_THRESHOLD, ENTRY_BATCH_SIZE, FILE_READ_BATCH_SIZE, SOURCE_MAP_RANGE_THRESHOLD, SOURCE_MAP_PADDING_BEFORE, SOURCE_MAP_PADDING_AFTER } from './constants.js'
+import { FILE_PROTOCOL, LARGE_BUNDLE_THRESHOLD, HEAVY_ENTRY_THRESHOLD, ENTRY_BATCH_SIZE, FILE_READ_BATCH_SIZE, SOURCE_MAP_RANGE_THRESHOLD, SOURCE_MAP_PADDING_BEFORE, SOURCE_MAP_PADDING_AFTER, FILE_EXISTS_CACHE_MAX_SIZE } from './constants.js'
+
+/**
+ * AST node with position information (common to babel and vite parsers)
+ * Uses Record for flexible property access since different node types have different shapes
+ */
+interface AstNodeWithPosition {
+  type?: string
+  start?: number
+  end?: number
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any
+}
 
 /**
  * Normalize URL for merging by stripping query parameters.
@@ -142,6 +154,12 @@ export class CoverageConverter {
       return cached
     }
     const exists = existsSync(filePath)
+    // Limit cache size to prevent unbounded memory growth
+    if (this.fileExistsCache.size >= FILE_EXISTS_CACHE_MAX_SIZE) {
+      // Clear oldest entries (first 20%)
+      const keysToDelete = Array.from(this.fileExistsCache.keys()).slice(0, Math.floor(FILE_EXISTS_CACHE_MAX_SIZE * 0.2))
+      keysToDelete.forEach(key => this.fileExistsCache.delete(key))
+    }
     this.fileExistsCache.set(filePath, exists)
     return exists
   }
@@ -1300,9 +1318,9 @@ export class CoverageConverter {
           // For large bundles, skip nodes outside the src code range
           // This dramatically reduces processing time by avoiding source map lookups
           // for code that will never map to our src files
-          const nodeAny = node as any
-          if (srcCodeRange && typeof nodeAny.start === 'number' && typeof nodeAny.end === 'number') {
-            if (nodeAny.end < srcCodeRange.minOffset || nodeAny.start > srcCodeRange.maxOffset) {
+          const astNode = node as AstNodeWithPosition
+          if (srcCodeRange && typeof astNode.start === 'number' && typeof astNode.end === 'number') {
+            if (astNode.end < srcCodeRange.minOffset || astNode.start > srcCodeRange.maxOffset) {
               return 'ignore-this-and-nested-nodes'
             }
           }
@@ -1763,7 +1781,7 @@ export class CoverageConverter {
    * Determine if a node should be ignored in coverage
    * Mirrors Vitest's ignoreNode logic for SSR/bundler artifacts
    */
-  private shouldIgnoreNode(node: any, type: string): boolean | 'ignore-this-and-nested-nodes' {
+  private shouldIgnoreNode(node: AstNodeWithPosition, type: string): boolean | 'ignore-this-and-nested-nodes' {
     // Webpack require expressions
     if (
       type === 'statement' &&
@@ -1917,9 +1935,10 @@ export class CoverageConverter {
 
       // Use ast-v8-to-istanbul with the Babel AST
       // Pass empty functions array to mark everything as uncovered
+      // Note: Babel AST is structurally compatible with astV8ToIstanbul's expected AST
       const emptyCoverage = await astV8ToIstanbul({
         code,
-        ast: ast as any, // Babel AST is compatible
+        ast: ast as unknown as Parameters<typeof astV8ToIstanbul>[0]['ast'],
         coverage: {
           url: fileUrl,
           functions: [], // No functions executed = 0% coverage
@@ -1931,7 +1950,9 @@ export class CoverageConverter {
       // Fix the path in the coverage data
       const result: CoverageMapData = {}
       for (const [, data] of Object.entries(emptyCoverage as CoverageMapData)) {
-        ;(data as any).path = filePath
+        // FileCoverageData has a path property that we need to update
+        const fileCoverage = data as CoverageMapData[string] & { path: string }
+        fileCoverage.path = filePath
         result[filePath] = data
       }
 

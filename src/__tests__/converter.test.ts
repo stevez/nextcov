@@ -1,7 +1,5 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { CoverageConverter } from '../converter.js'
@@ -9,7 +7,7 @@ import { SourceMapLoader } from '../sourcemap-loader.js'
 
 // Mock existsSync to return true for test paths with src/
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
     existsSync: vi.fn((path) => {
@@ -329,6 +327,7 @@ describe('CoverageConverter', () => {
         functions: [{
           functionName: 'test',
           ranges: [{ startOffset: 0, endOffset: 30, count: 1 }],
+          isBlockCoverage: true,
         }],
       }
 

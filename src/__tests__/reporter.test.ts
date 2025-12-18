@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import libCoverage from 'istanbul-lib-coverage'
-import type { CoverageMap } from 'istanbul-lib-coverage'
+import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
 import { IstanbulReporter } from '../reporter.js'
 
 // Helper to create a coverage map with test data
@@ -13,7 +12,7 @@ function createTestCoverageMap(files: Record<string, {
   functions?: Record<string, number>
   branches?: Record<string, number[]>
 }>): CoverageMap {
-  const data: Record<string, unknown> = {}
+  const data: CoverageMapData = {}
 
   for (const [filePath, coverage] of Object.entries(files)) {
     data[filePath] = {
@@ -46,10 +45,11 @@ function createTestCoverageMap(files: Record<string, {
               {
                 type: 'if',
                 loc: { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } },
-                locations: coverage.branches[k].map((_, j) => ({
+                locations: coverage.branches![k].map((_, j) => ({
                   start: { line: i + 1, column: j * 5 },
                   end: { line: i + 1, column: (j + 1) * 5 },
                 })),
+                line: i + 1,
               },
             ])
           )

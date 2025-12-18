@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { existsSync } from 'fs'
 import {
@@ -7,14 +6,11 @@ import {
   MERGE_HELP,
   validateInputDirectories,
   executeMerge,
-  type MergeOptions,
-  type ParseResult,
-  type MergeResult,
 } from '../cli.js'
 
 // Mock fs module but keep readFileSync for integration tests
 vi.mock('fs', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = await importOriginal<typeof import('fs')>()
   return {
     ...actual,
     existsSync: vi.fn(),

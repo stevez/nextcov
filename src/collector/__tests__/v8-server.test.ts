@@ -1,14 +1,11 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { existsSync } from 'node:fs'
 import {
   V8ServerCoverageCollector,
   createV8ServerCollector,
   startV8ServerCoverage,
-  stopV8ServerCoverage,
   type V8ServerCoverageEntry,
 } from '../v8-server.js'
 import { createMockCoverageClient } from './test-utils.js'
@@ -30,7 +27,7 @@ vi.mock('monocart-coverage-reports', () => ({
 
 // Mock node:fs for readCoverageFiles tests
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
     existsSync: vi.fn((path) => {
@@ -373,8 +370,6 @@ describe('V8ServerCoverageCollector', () => {
       const emptyDir = join(tmpdir(), `empty-v8-test-${Date.now()}`)
       await collector.save([], emptyDir)
 
-      // Use real existsSync to check (not mocked)
-      const { existsSync: realExistsSync } = await import('node:fs')
       // The mock returns true for 'coverage' paths, but save() should early return
       // So we just verify the method doesn't throw
       expect(true).toBe(true)

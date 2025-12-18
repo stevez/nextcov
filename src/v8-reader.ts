@@ -9,7 +9,7 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { mergeProcessCovs } from '@bcoe/v8-coverage'
-import type { V8Coverage, V8ScriptCoverage, EntryFilter } from './types.js'
+import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, EntryFilter } from './types.js'
 
 const DEFAULT_EXCLUDE_PATTERNS = [
   '/node_modules/',
@@ -78,15 +78,16 @@ export class V8CoverageReader {
         source: entry.source,
       }
 
-      // Preserve dev mode source map data
+      // Preserve dev mode source map data using type-safe approach
+      const devModeScript = script as DevModeV8ScriptCoverage
       if (entry.sourceMapData) {
-        ;(script as any).sourceMapData = entry.sourceMapData
+        devModeScript.sourceMapData = entry.sourceMapData as DevModeV8ScriptCoverage['sourceMapData']
       }
       if (entry.originalPath) {
-        ;(script as any).originalPath = entry.originalPath
+        devModeScript.originalPath = entry.originalPath
       }
 
-      return script
+      return devModeScript
     })
 
     return { result }

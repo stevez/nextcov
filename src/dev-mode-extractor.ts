@@ -20,6 +20,7 @@ import {
   isWebpackUrl,
   containsSourceRoot,
   normalizeWebpackSourcePath,
+  SOURCE_MAP_CACHE_MAX_SIZE,
 } from './constants.js'
 import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from './config.js'
 import { log, formatError } from './logger.js'
@@ -102,6 +103,11 @@ export class DevModeSourceMapExtractor {
           }
 
           results.push(extracted)
+          // Limit cache size to prevent unbounded memory growth
+          if (this.sourceMapCache.size >= SOURCE_MAP_CACHE_MAX_SIZE) {
+            const keysToDelete = Array.from(this.sourceMapCache.keys()).slice(0, Math.floor(SOURCE_MAP_CACHE_MAX_SIZE * 0.2))
+            keysToDelete.forEach(key => this.sourceMapCache.delete(key))
+          }
           this.sourceMapCache.set(originalPath, extracted)
         }
       } catch (error) {
@@ -268,6 +274,11 @@ export class DevModeSourceMapExtractor {
         originalPath,
       }
 
+      // Limit cache size to prevent unbounded memory growth
+      if (this.sourceMapCache.size >= SOURCE_MAP_CACHE_MAX_SIZE) {
+        const keysToDelete = Array.from(this.sourceMapCache.keys()).slice(0, Math.floor(SOURCE_MAP_CACHE_MAX_SIZE * 0.2))
+        keysToDelete.forEach(key => this.sourceMapCache.delete(key))
+      }
       this.sourceMapCache.set(originalPath, extracted)
       return extracted
     } catch (error) {
