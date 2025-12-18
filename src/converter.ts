@@ -379,6 +379,10 @@ export class CoverageConverter {
     // This handles simple JSX components where source map loses statement info
     await this.fixEmptyStatementMaps(normalizedMap)
 
+    // Filter JSX array method callbacks to match Vitest's behavior
+    // Vitest's ast-v8-to-istanbul filters these, but browser coverage doesn't
+    await this.filterJsxArrayMethodCallbacks(normalizedMap)
+
     // Fix spurious branches that don't exist in the original source
     // This handles source map artifacts where arithmetic expressions get mapped as branches
     await this.fixSpuriousBranches(normalizedMap)
@@ -599,6 +603,83 @@ export class CoverageConverter {
         data.b['0'] = anyStatementCovered ? [1] : [0]
       }
     }
+    endTimer()
+  }
+
+  /**
+   * Filter JSX array method callbacks to match Vitest's behavior.
+   *
+   * Vitest's ast-v8-to-istanbul filters arrow functions whose bodies don't have source mappings.
+   * In browser/E2E tests, these same functions are NOT filtered by ast-v8-to-istanbul.
+   *
+   * These are typically `.map()`, `.filter()`, `.reduce()`, etc. callbacks with JSX bodies like:
+   *   items.map((item) => <div>{item}</div>)
+   *
+   * We identify them by checking if the function is on a line containing these array method calls.
+   */
+  private async filterJsxArrayMethodCallbacks(coverageMap: CoverageMap): Promise<void> {
+    const endTimer = createTimer('filterJsxArrayMethodCallbacks')
+    const { promises: fs } = await import('node:fs')
+
+    const files = coverageMap.files()
+
+    // Only process JSX/TSX files
+    const jsxFiles = files.filter(f => f.endsWith('.tsx') || f.endsWith('.jsx'))
+
+    for (const filePath of jsxFiles) {
+      const fileCoverage = coverageMap.fileCoverageFor(filePath)
+      const data = fileCoverage.toJSON() as {
+        fnMap: Record<string, {
+          name: string
+          loc: { start: { line: number; column?: number | null }; end: { line: number; column?: number | null } }
+        }>
+        f: Record<string, number>
+      }
+
+      const { fnMap, f } = data
+
+      // Read source file to check which lines contain array method calls
+      let sourceCode: string
+      try {
+        sourceCode = await fs.readFile(filePath, 'utf-8')
+      } catch {
+        continue // Skip if can't read source
+      }
+
+      const sourceLines = sourceCode.split('\n')
+      const functionsToRemove: string[] = []
+
+      // Check each anonymous function
+      for (const [id, fn] of Object.entries(fnMap)) {
+        // Only check anonymous arrow functions
+        if (!fn.name.startsWith('(anonymous_')) continue
+
+        const line = fn.loc?.start?.line
+        if (!line || line < 1 || line > sourceLines.length) continue
+
+        // Get the source line (1-indexed to 0-indexed)
+        const sourceLine = sourceLines[line - 1]
+
+        // Also check the previous line since the function might start on the next line
+        // Example: .map((item) => (
+        //            <div>...</div>  <- function body starts here
+        const prevLine = line > 1 ? sourceLines[line - 2] : ''
+
+        // Check if this line or the previous line contains array method calls
+        // Match: .map(, .filter(, .reduce(, .forEach(, .find(, .some(, .every(
+        const pattern = /\.(map|filter|reduce|forEach|find|some|every)\s*\(/
+        if (pattern.test(sourceLine) || pattern.test(prevLine)) {
+          functionsToRemove.push(id)
+        }
+      }
+
+      // Remove the identified functions
+      for (const id of functionsToRemove) {
+        delete fnMap[id]
+        delete f[id]
+      }
+    }
+
     endTimer()
   }
 
