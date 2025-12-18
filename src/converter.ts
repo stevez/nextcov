@@ -667,8 +667,21 @@ export class CoverageConverter {
 
         // Check if this line or the previous line contains array method calls
         // Match: .map(, .filter(, .reduce(, .forEach(, .find(, .some(, .every(
-        const pattern = /\.(map|filter|reduce|forEach|find|some|every)\s*\(/
-        if (pattern.test(sourceLine) || pattern.test(prevLine)) {
+        const arrayMethodPattern = /\.(map|filter|reduce|forEach|find|some|every)\s*\(/
+        const hasArrayMethod = arrayMethodPattern.test(sourceLine) || arrayMethodPattern.test(prevLine)
+
+        if (!hasArrayMethod) continue
+
+        // Check if the arrow function body contains JSX
+        // Look for: => <something or => ( with < on next line
+        // This filters out non-JSX callbacks like .filter((c) => c !== cuisine)
+        const jsxPattern = /=>\s*[(<]/
+        const nextLine = line < sourceLines.length ? sourceLines[line] : ''
+        const hasJsx = jsxPattern.test(sourceLine) ||
+                       jsxPattern.test(prevLine) ||
+                       (sourceLine.includes('=>') && nextLine.trim().startsWith('<'))
+
+        if (hasJsx) {
           functionsToRemove.push(id)
         }
       }
