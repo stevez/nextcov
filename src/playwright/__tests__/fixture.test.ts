@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { Page, TestInfo } from '@playwright/test'
 
@@ -483,7 +482,7 @@ describe('playwright integration', () => {
   describe('collectClientCoverage with config', () => {
     it('should use custom cacheDir from config', async () => {
       const { collectClientCoverage } = await import('../index.js')
-      const { filterAppCoverage, ClientCoverageCollector } = await import('../../collector/index.js')
+      const { filterAppCoverage } = await import('../../collector/index.js')
 
       const mockCoverage = [{ url: 'http://localhost:3000/_next/static/chunks/app.js', functions: [] }]
 

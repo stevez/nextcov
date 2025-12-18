@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import convertSourceMap from 'convert-source-map'
 import type { SourceMapData, SourceFile, V8Coverage } from './types.js'
 import { DEFAULT_NEXTCOV_CONFIG } from './config.js'
-import { FILE_PROTOCOL, extractNextPath, SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN, normalizeWebpackSourcePath } from './constants.js'
+import { FILE_PROTOCOL, extractNextPath, SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN, normalizeWebpackSourcePath, SOURCE_CACHE_MAX_SIZE } from './constants.js'
 import { log, formatError } from './logger.js'
 
 export class SourceMapLoader {
@@ -47,6 +47,12 @@ export class SourceMapLoader {
         sourceMap: sourceMap || undefined,
       }
 
+      // Limit cache size to prevent unbounded memory growth
+      if (this.sourceCache.size >= SOURCE_CACHE_MAX_SIZE) {
+        // Clear oldest entries (first 20%)
+        const keysToDelete = Array.from(this.sourceCache.keys()).slice(0, Math.floor(SOURCE_CACHE_MAX_SIZE * 0.2))
+        keysToDelete.forEach(key => this.sourceCache.delete(key))
+      }
       this.sourceCache.set(url, sourceFile)
       return sourceFile
     } catch (error) {
@@ -297,7 +303,7 @@ export class SourceMapLoader {
    */
   normalizeSourcePath(sourcePath: string): string {
     // Use shared normalization for webpack paths
-    let normalized = normalizeWebpackSourcePath(sourcePath)
+    const normalized = normalizeWebpackSourcePath(sourcePath)
 
     // Handle Windows absolute paths in source maps
     const srcMatch = normalized.match(/[/\\]src[/\\](.+)$/)

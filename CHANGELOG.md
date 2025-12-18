@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.5] - 2024-12-17
+
+### Improved
+
+- **Removed `@ts-nocheck` from all test files** - Enabled full TypeScript type checking across 11 test files (4,801 lines)
+- **Fixed all ESLint errors** - Resolved 23 errors and 6 warnings
+  - Removed unused imports in test files
+  - Fixed empty interface in `v8-server.ts` (changed to type alias)
+  - Fixed `let` to `const` in `sourcemap-loader.ts`
+  - Fixed explicit `any` types with proper interfaces
+- **Added cache size limits** - Prevents unbounded memory growth in long-running processes
+  - `fileExistsCache` in converter (max 10,000 entries)
+  - `sourceCache` in sourcemap-loader (max 500 entries)
+  - `sourceMapCache` in dev-mode-extractor (max 1,000 entries)
+  - Caches automatically evict oldest 20% when limit is reached
+
 ## [0.7.4] - 2024-12-17
 
 ### Fixed

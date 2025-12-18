@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
@@ -50,7 +49,7 @@ describe('CoverageProcessor', () => {
     })
 
     it('should accept watermarks', () => {
-      const watermarks = { statements: [60, 90] }
+      const watermarks = { statements: [60, 90] as [number, number] }
       const customProcessor = new CoverageProcessor(projectRoot, {
         watermarks,
       })

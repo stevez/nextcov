@@ -29,7 +29,8 @@ import {
   attachSourceContent,
 } from './cdp-utils.js'
 
-export interface V8ServerCoverageEntry extends BaseCoverageEntry {}
+/** V8 server coverage entry - extends base coverage entry with server-specific data */
+export type V8ServerCoverageEntry = BaseCoverageEntry
 
 export interface V8ServerCollectorConfig {
   /** CDP port to connect to (default: 9230) */

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   DevModeServerCollector,
@@ -60,6 +59,7 @@ describe('DevModeServerCollector', () => {
     it('should return false when CDPClient returns null', async () => {
       const { log } = await import('../../logger.js')
       const { CDPClient } = await import('monocart-coverage-reports')
+      // @ts-expect-error - testing null return value which can happen at runtime
       vi.mocked(CDPClient).mockResolvedValue(null)
 
       const result = await collector.connect()
