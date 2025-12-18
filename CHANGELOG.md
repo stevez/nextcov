@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2024-12-17
+
+### Fixed
+
+- **JSX array method callback filtering** - Fixed function count mismatches between Vitest and nextcov for JSX files
+  - Vitest's ast-v8-to-istanbul filters arrow functions in `.map()`, `.filter()`, `.reduce()`, etc. whose bodies are JSX elements (e.g., `items.map((item) => <Component />)`)
+  - These callbacks have no source mappings for their function bodies after JSX transformation to `_jsxDEV()` calls
+  - nextcov's browser/E2E coverage previously included these functions, causing merge conflicts
+  - New `filterJsxArrayMethodCallbacks()` method identifies and removes these callbacks by:
+    - Checking if the function is on a line containing `.map(`, `.filter(`, `.reduce()`, `.forEach()`, `.find()`, `.some()`, or `.every()`
+    - Also checking the previous line (for multi-line arrow functions)
+    - Only filtering anonymous arrow functions in `.tsx`/`.jsx` files
+  - This ensures clean merging of Vitest unit tests and nextcov E2E coverage with consistent function counts
+
 ## [0.7.2] - 2024-12-17
 
 ### Fixed
