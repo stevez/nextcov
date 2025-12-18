@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] - 2024-12-17
+
+### Fixed
+
+- **Refined JSX callback filtering** - Fixed over-aggressive filtering in 0.7.3
+  - Now only filters callbacks with JSX bodies (e.g., `=> <Component>` or `=> (<div>...</div>)`)
+  - Keeps non-JSX callbacks like `.filter((c) => c !== value)` and `.reduce((sum, r) => sum + r, 0)` that have proper source mappings
+  - Added JSX syntax detection: checks for `=>` followed by `<` or `(` with JSX on next line
+  - More accurate function counts, better alignment with Vitest's ast-v8-to-istanbul behavior
+  - Prevents false positives where non-JSX array method callbacks were incorrectly removed
+
 ## [0.7.3] - 2024-12-17
 
 ### Fixed
