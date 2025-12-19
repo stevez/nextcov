@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2024-12-18
+
+### Changed
+
+- **CLI merge gracefully skips missing directories** - The `nextcov merge` command now skips missing coverage directories instead of failing
+  - Missing directories are logged as "Skipped (not found)" instead of causing an error
+  - Requires at least 2 valid coverage directories to proceed
+  - Makes merge commands more robust in CI pipelines where some coverage types may be optional
+
 ## [0.8.0] - 2024-12-18
 
 ### Changed

@@ -274,21 +274,23 @@ describe('CLI', () => {
       expect(result.coverageFiles[1]).toContain('coverage-final.json')
     })
 
-    it('should return error when a coverage file does not exist', () => {
+    it('should skip missing directories and track them in skipped array', () => {
       vi.mocked(existsSync).mockReturnValueOnce(true).mockReturnValueOnce(false)
 
       const result = validateInputDirectories(['coverage/unit', 'coverage/missing'])
 
-      expect(result.error).toContain('Coverage file not found')
-      expect(result.coverageFiles).toEqual([])
+      // With only 1 valid directory, we need at least 2 to merge
+      expect(result.error).toContain('Need at least 2 coverage directories to merge')
+      expect(result.skipped).toContain('coverage/missing')
     })
 
-    it('should return error on first missing file', () => {
+    it('should return error when all directories are missing', () => {
       vi.mocked(existsSync).mockReturnValue(false)
 
       const result = validateInputDirectories(['coverage/missing'])
 
-      expect(result.error).toContain('Coverage file not found')
+      expect(result.error).toContain('No coverage files found in any of the specified directories')
+      expect(result.skipped).toContain('coverage/missing')
     })
   })
 
@@ -307,7 +309,7 @@ describe('CLI', () => {
       })
     })
 
-    it('should return error when validation fails', async () => {
+    it('should return error when validation fails (all missing)', async () => {
       vi.mocked(existsSync).mockReturnValue(false)
 
       const result = await executeMerge({
@@ -317,7 +319,7 @@ describe('CLI', () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('Coverage file not found')
+      expect(result.error).toContain('No coverage files found in any of the specified directories')
     })
 
     it('should successfully merge coverage files', async () => {
@@ -333,7 +335,7 @@ describe('CLI', () => {
       expect(result.outputDir).toBeDefined()
     })
 
-    it('should successfully merge single coverage file', async () => {
+    it('should return error when only single coverage directory provided', async () => {
       vi.mocked(existsSync).mockReturnValue(true)
 
       const result = await executeMerge({
@@ -342,7 +344,8 @@ describe('CLI', () => {
         reporters: ['json'],
       })
 
-      expect(result.success).toBe(true)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Need at least 2 coverage directories to merge')
     })
 
     it('should return error when loadCoverageJson returns null', async () => {
@@ -350,7 +353,7 @@ describe('CLI', () => {
       mockLoadCoverageJson.mockResolvedValueOnce(null)
 
       const result = await executeMerge({
-        inputs: ['coverage/unit'],
+        inputs: ['coverage/unit', 'coverage/e2e'],
         output: './coverage/merged',
         reporters: ['html'],
       })
@@ -364,7 +367,7 @@ describe('CLI', () => {
       mockGenerateReports.mockRejectedValueOnce(new Error('Report generation failed'))
 
       const result = await executeMerge({
-        inputs: ['coverage/unit'],
+        inputs: ['coverage/unit', 'coverage/e2e'],
         output: './coverage/merged',
         reporters: ['html'],
       })

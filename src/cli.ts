@@ -128,20 +128,33 @@ export interface MergeResult {
 }
 
 /**
- * Validate input directories and return coverage file paths
+ * Validate input directories and return coverage file paths.
+ * Missing directories are skipped with a warning instead of failing.
  */
-export function validateInputDirectories(inputs: string[]): { coverageFiles: string[], error?: string } {
+export function validateInputDirectories(inputs: string[]): { coverageFiles: string[], skipped: string[], error?: string } {
   const coverageFiles: string[] = []
+  const skipped: string[] = []
+
   for (const dir of inputs) {
     const absoluteDir = resolve(process.cwd(), dir)
     const coverageFile = resolve(absoluteDir, 'coverage-final.json')
 
     if (!existsSync(coverageFile)) {
-      return { coverageFiles: [], error: `Coverage file not found: ${coverageFile}` }
+      skipped.push(dir)
+    } else {
+      coverageFiles.push(coverageFile)
     }
-    coverageFiles.push(coverageFile)
   }
-  return { coverageFiles }
+
+  if (coverageFiles.length === 0) {
+    return { coverageFiles: [], skipped, error: 'No coverage files found in any of the specified directories' }
+  }
+
+  if (coverageFiles.length === 1) {
+    return { coverageFiles: [], skipped, error: 'Need at least 2 coverage directories to merge' }
+  }
+
+  return { coverageFiles, skipped }
 }
 
 /**
@@ -155,8 +168,14 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
   }
   const coverageFiles = validation.coverageFiles
 
+  // Determine which inputs were actually found
+  const foundInputs = options.inputs.filter(dir => !validation.skipped.includes(dir))
+
   console.log(`📊 nextcov merge`)
-  console.log(`   Inputs: ${options.inputs.join(', ')}`)
+  console.log(`   Inputs: ${foundInputs.join(', ')}`)
+  if (validation.skipped.length > 0) {
+    console.log(`   Skipped (not found): ${validation.skipped.join(', ')}`)
+  }
   console.log(`   Output: ${options.output}`)
   console.log(`   Reporters: ${options.reporters.join(', ')}`)
 
