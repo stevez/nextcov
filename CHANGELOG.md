@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2024-12-19
+
+### Fixed
+
+- **Branch coverage merge bug with 3+ sources** - Fixed incorrect branch coverage when merging 3 or more coverage sources (e.g., unit + component + integration)
+  - Bug: `baseCounts` was captured once before the inner loop, so each iteration used original values instead of accumulated values
+  - Example: Component tests `[4, 10]` + Integration tests `[0, 65]` should merge to `[4, 65]`, but incorrectly produced `[0, 65]`
+  - This caused branch coverage to appear lower than actual when combining coverage from multiple test types
+  - The bug was hidden when only merging 2 sources (e.g., unit + integration) since a single loop iteration worked correctly
+
 ## [0.8.1] - 2024-12-18
 
 ### Changed
