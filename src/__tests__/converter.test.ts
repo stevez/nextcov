@@ -648,6 +648,255 @@ describe('CoverageConverter', () => {
     })
   })
 
+  describe('removePhantomBranches', () => {
+    it('should remove phantom branches at line 1, column 0 with zero length', () => {
+      const testFile = '/project/src/layout.tsx'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // Phantom branch: if at line 1:0 with zero length (from webpack module wrapper)
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              locations: [
+                { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+                { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              ],
+              line: 1,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+      })
+
+      converter['removePhantomBranches'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Phantom branch should be removed
+      expect(Object.keys(data.branchMap).length).toBe(0)
+      expect(Object.keys(data.b).length).toBe(0)
+    })
+
+    it('should not remove branches on lines other than line 1', () => {
+      const testFile = '/project/src/component.tsx'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // Real branch at line 10
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 10, column: 0 }, end: { line: 10, column: 0 } },
+              locations: [
+                { start: { line: 10, column: 0 }, end: { line: 10, column: 0 } },
+                { start: { line: 10, column: 0 }, end: { line: 10, column: 0 } },
+              ],
+              line: 10,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+      })
+
+      converter['removePhantomBranches'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Branch on line 10 should be kept
+      expect(Object.keys(data.branchMap).length).toBe(1)
+    })
+
+    it('should not remove branches with non-zero column', () => {
+      const testFile = '/project/src/component.tsx'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // Branch at line 1 but column 5 (not phantom)
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 1, column: 5 }, end: { line: 1, column: 10 } },
+              locations: [
+                { start: { line: 1, column: 5 }, end: { line: 1, column: 10 } },
+                { start: { line: 1, column: 5 }, end: { line: 1, column: 10 } },
+              ],
+              line: 1,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+      })
+
+      converter['removePhantomBranches'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Branch with non-zero column should be kept
+      expect(Object.keys(data.branchMap).length).toBe(1)
+    })
+
+    it('should not remove non-if branch types at line 1:0', () => {
+      const testFile = '/project/src/component.tsx'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // binary-expr branch at line 1:0 (could be a real ternary operator)
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'binary-expr',
+              loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              locations: [
+                { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+                { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              ],
+              line: 1,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+      })
+
+      converter['removePhantomBranches'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Non-if branch types should be kept
+      expect(Object.keys(data.branchMap).length).toBe(1)
+    })
+
+    it('should remove multiple phantom branches from multiple files', () => {
+      const file1 = '/project/src/layout.tsx'
+      const file2 = '/project/src/page.tsx'
+      const file3 = '/project/src/not-found.tsx'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      const coverageMap = libCoverage.createCoverageMap({
+        [file1]: {
+          path: file1,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              locations: [],
+              line: 1,
+            },
+            '1': {
+              type: 'if',
+              loc: { start: { line: 10, column: 5 }, end: { line: 10, column: 20 } },
+              locations: [],
+              line: 10,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0], '1': [1, 1] },
+        },
+        [file2]: {
+          path: file2,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              locations: [],
+              line: 1,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+        [file3]: {
+          path: file3,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+              locations: [],
+              line: 1,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+      })
+
+      converter['removePhantomBranches'](coverageMap)
+
+      // file1: phantom removed, real branch kept
+      const data1 = coverageMap.fileCoverageFor(file1).toJSON()
+      expect(Object.keys(data1.branchMap).length).toBe(1)
+      expect(data1.branchMap['1']).toBeDefined()
+
+      // file2: phantom removed, no branches left
+      const data2 = coverageMap.fileCoverageFor(file2).toJSON()
+      expect(Object.keys(data2.branchMap).length).toBe(0)
+
+      // file3: phantom removed, no branches left
+      const data3 = coverageMap.fileCoverageFor(file3).toJSON()
+      expect(Object.keys(data3.branchMap).length).toBe(0)
+    })
+
+    it('should not remove branches with non-zero end position', () => {
+      const testFile = '/project/src/component.tsx'
+      const libCoverage = require('istanbul-lib-coverage')
+
+      // Branch at line 1:0 but end is not 1:0 (has actual span)
+      const coverageMap = libCoverage.createCoverageMap({
+        [testFile]: {
+          path: testFile,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {
+            '0': {
+              type: 'if',
+              loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 20 } },
+              locations: [],
+              line: 1,
+            },
+          },
+          s: {},
+          f: {},
+          b: { '0': [1, 0] },
+        },
+      })
+
+      converter['removePhantomBranches'](coverageMap)
+
+      const data = coverageMap.fileCoverageFor(testFile).toJSON()
+      // Branch with actual span should be kept
+      expect(Object.keys(data.branchMap).length).toBe(1)
+    })
+  })
+
   describe('createEmptyCoverage', () => {
     it('should return null for invalid TypeScript', async () => {
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

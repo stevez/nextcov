@@ -405,6 +405,11 @@ export class CoverageConverter {
     // This handles source map artifacts where arithmetic expressions get mapped as branches
     await this.fixSpuriousBranches(normalizedMap)
 
+    // Remove phantom branches created by webpack module wrappers
+    // These are "if" branches at line 1, column 0 with zero length that don't exist in source
+    this.removePhantomBranches(normalizedMap)
+
+
     // Fix function declaration statements that have 0 hits but function has calls
     // This handles Next.js 15's TURBOPACK_DISABLE_EXPORT_MERGING comment insertion
     // which causes V8 to not properly track function declaration coverage
@@ -923,6 +928,72 @@ export class CoverageConverter {
 
     return lines
   }
+
+  /**
+   * Remove phantom branches created by webpack module wrappers.
+   *
+   * When webpack bundles async modules, it wraps them in try/catch blocks:
+   *   __webpack_require__.a(module, async (deps, result) => { try { ... } });
+   *
+   * V8 sees the "try" as a branch point and records it. When source-mapped back,
+   * these get attributed to line 1, column 0 of the original source file with
+   * zero length (since there's no corresponding source code).
+   *
+   * These phantom branches:
+   * - Have type "if" (from the try block's conditional behavior)
+   * - Are located at exactly line 1, column 0
+   * - Have zero-length location (start === end === 1:0)
+   * - Don't represent any real branching logic in the source
+   *
+   * We filter these out to get accurate branch counts that match unit tests.
+   */
+  private removePhantomBranches(coverageMap: CoverageMap): void {
+    const endTimer = createTimer('removePhantomBranches')
+    let totalRemoved = 0
+
+    for (const filePath of coverageMap.files()) {
+      const fileCoverage = coverageMap.fileCoverageFor(filePath)
+      const data = (fileCoverage as unknown as { data: CoverageMapData[string] }).data
+      const branchMap = data.branchMap as Record<
+        string,
+        {
+          type: string
+          loc: { start: { line: number; column: number }; end: { line: number; column: number } }
+        }
+      >
+      const b = data.b as Record<string, number[]>
+
+      const branchesToRemove: string[] = []
+
+      for (const [branchId, branch] of Object.entries(branchMap)) {
+        // Check for phantom branch signature:
+        // - type is "if"
+        // - location is exactly line 1, column 0
+        // - zero length (end equals start)
+        if (
+          branch.type === 'if' &&
+          branch.loc.start.line === 1 &&
+          branch.loc.start.column === 0 &&
+          branch.loc.end.line === 1 &&
+          branch.loc.end.column === 0
+        ) {
+          branchesToRemove.push(branchId)
+        }
+      }
+
+      for (const branchId of branchesToRemove) {
+        delete branchMap[branchId]
+        delete b[branchId]
+        totalRemoved++
+      }
+    }
+
+    if (totalRemoved > 0) {
+      log(`  Removed ${totalRemoved} phantom branches from webpack module wrappers`)
+    }
+    endTimer()
+  }
+
 
   /**
    * Fix function declaration statements that have 0 hits but the function has calls.
