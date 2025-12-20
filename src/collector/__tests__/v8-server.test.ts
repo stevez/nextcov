@@ -25,6 +25,10 @@ vi.mock('monocart-coverage-reports', () => ({
   CDPClient: vi.fn(),
 }))
 
+// Mock global fetch for isCdpPortAvailable pre-check
+const mockFetch = vi.fn()
+vi.stubGlobal('fetch', mockFetch)
+
 // Mock node:fs for readCoverageFiles tests
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
@@ -48,6 +52,8 @@ describe('V8ServerCoverageCollector', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    // Mock fetch to return ok for CDP availability check
+    mockFetch.mockResolvedValue({ ok: true })
     testCacheDir = join(tmpdir(), `v8-server-coverage-test-${Date.now()}`)
     collector = new V8ServerCoverageCollector({ v8CoverageDir: testCacheDir })
   })
@@ -443,6 +449,8 @@ describe('createV8ServerCollector', () => {
 describe('startV8ServerCoverage and stopV8ServerCoverage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Mock fetch to return ok for CDP availability check
+    mockFetch.mockResolvedValue({ ok: true })
   })
 
   it('should start and connect via startV8ServerCoverage', async () => {

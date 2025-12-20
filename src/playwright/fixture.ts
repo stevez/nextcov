@@ -145,7 +145,7 @@ export async function startServerCoverage(
   const devWorkerPort = resolved.cdpPort + 1 // e.g., 9231 (worker port for --inspect=9230)
   const productionPort = resolved.cdpPort // e.g., 9230 (main process port)
 
-  log('📊 Auto-detecting server mode...')
+  console.log('📊 Auto-detecting server mode...')
   log(`  Base URL: ${resolved.devMode.baseUrl}`)
   log(`  Trying dev mode (worker port ${devWorkerPort})...`)
 
@@ -176,9 +176,11 @@ export async function startServerCoverage(
     const waitedMs = Date.now() - startTime
 
     if (webpackReady) {
-      log(`  ✓ Dev mode - webpack ready after ${waitedMs}ms`)
+      console.log(`  ✓ Dev mode detected (worker port ${devWorkerPort})`)
+      log(`    webpack ready after ${waitedMs}ms`)
     } else {
-      log(`  ⚠️ Dev mode - webpack not ready after ${waitedMs}ms (may affect coverage)`)
+      console.log(`  ✓ Dev mode detected (worker port ${devWorkerPort})`)
+      log(`  ⚠️ webpack not ready after ${waitedMs}ms (may affect coverage)`)
     }
 
     log('  ✓ Server coverage collection started')
@@ -187,7 +189,7 @@ export async function startServerCoverage(
 
   // Dev worker port not available - production mode will be used
   devModeCollector = null
-  log(`  ℹ️ Production mode will be used (NODE_V8_COVERAGE + port ${productionPort})`)
+  console.log(`  ✓ Production mode detected (port ${productionPort})`)
   return false
 }
 

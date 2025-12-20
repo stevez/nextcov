@@ -19,12 +19,18 @@ vi.mock('monocart-coverage-reports', () => ({
   CDPClient: vi.fn(),
 }))
 
+// Mock global fetch for isCdpPortAvailable pre-check
+const mockFetch = vi.fn()
+vi.stubGlobal('fetch', mockFetch)
+
 describe('DevModeServerCollector', () => {
   let collector: DevModeServerCollector
 
   beforeEach(() => {
-    collector = new DevModeServerCollector()
     vi.clearAllMocks()
+    // Mock fetch to return ok for CDP availability check
+    mockFetch.mockResolvedValue({ ok: true })
+    collector = new DevModeServerCollector()
   })
 
   afterEach(() => {
