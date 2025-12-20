@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.4] - 2024-12-20
+
+### Improved
+
+- **Quieter CDP port probing** - Added HTTP pre-check before connecting to CDP ports to avoid noisy `[MCR] Error: connect ECONNREFUSED` log messages
+  - New `isCdpPortAvailable()` function checks `/json/list` endpoint before calling monocart's CDPClient
+  - When probing for dev mode (port 9231), unavailable ports are now silently skipped
+  - Mode detection messages (`Dev mode detected`, `Production mode detected`) now always show using `console.log()`
+
+### Added
+
+- **Path traversal protection** - Added `isPathWithinBase()` helper for validating file paths stay within project boundaries
+- **Safe JSON parsing** - Added `safeJsonParse()` utility with error logging for V8 coverage file parsing
+- **Exported CDP utilities** - `isCdpPortAvailable`, `connectToCdp`, `connectAndStartCoverage` now exported from `collector/index.js`
+
 ## [0.8.3] - 2024-12-20
 
 ### Fixed

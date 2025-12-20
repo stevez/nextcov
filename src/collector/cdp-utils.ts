@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url'
 import { CDPClient } from 'monocart-coverage-reports'
 import { log, safeClose } from '../logger.js'
 
+/** Default timeout for CDP port availability check (ms) */
+const CDP_CHECK_TIMEOUT = 2000
+
 /** Monocart CDPClient type */
 export type MonocartCDPClient = Awaited<ReturnType<typeof CDPClient>>
 
@@ -128,14 +131,59 @@ export function attachSourceContent<T extends BaseCoverageEntry>(entries: T[]): 
 }
 
 /**
+ * Check if a CDP port is available by making a quick HTTP request to /json/list.
+ * This avoids triggering monocart's error logging when the port is unavailable.
+ *
+ * @param port - CDP port to check
+ * @param timeout - Timeout in milliseconds (default: 2000)
+ * @returns true if CDP is available, false otherwise
+ */
+export async function isCdpPortAvailable(
+  port: number,
+  timeout: number = CDP_CHECK_TIMEOUT
+): Promise<boolean> {
+  const url = `http://127.0.0.1:${port}/json/list`
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+    return response.ok
+  } catch {
+    // Connection refused, timeout, or other error - port not available
+    return false
+  }
+}
+
+/**
  * Connect to CDP only (without starting coverage)
  * Use this when NODE_V8_COVERAGE handles coverage collection
+ *
+ * @param port - CDP port to connect to
+ * @param mode - Optional mode string for logging
+ * @param skipAvailabilityCheck - Skip the pre-check (default: false)
  */
 export async function connectToCdp(
   port: number,
-  mode?: string
+  mode?: string,
+  skipAvailabilityCheck: boolean = false
 ): Promise<MonocartCDPClient | null> {
   const suffix = mode ? ` (${mode})` : ''
+
+  // Pre-check: verify CDP port is available before calling CDPClient
+  // This avoids monocart's noisy [MCR] Error logging when port is unavailable
+  if (!skipAvailabilityCheck) {
+    const available = await isCdpPortAvailable(port)
+    if (!available) {
+      log(`  CDP port ${port} not available${suffix}`)
+      return null
+    }
+  }
 
   try {
     log(`  Connecting to CDP${suffix} at port ${port}...`)
@@ -156,12 +204,17 @@ export async function connectToCdp(
 
 /**
  * Connect to CDP and start JS coverage collection
+ *
+ * @param port - CDP port to connect to
+ * @param mode - Optional mode string for logging
+ * @param skipAvailabilityCheck - Skip the pre-check (default: false)
  */
 export async function connectAndStartCoverage(
   port: number,
-  mode?: string
+  mode?: string,
+  skipAvailabilityCheck: boolean = false
 ): Promise<MonocartCDPClient | null> {
-  const client = await connectToCdp(port, mode)
+  const client = await connectToCdp(port, mode, skipAvailabilityCheck)
   if (!client) {
     return null
   }

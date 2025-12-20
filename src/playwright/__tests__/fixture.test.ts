@@ -347,20 +347,22 @@ describe('playwright integration', () => {
   describe('startServerCoverage', () => {
     it('should return false when dev mode connection fails (production mode)', async () => {
       const { startServerCoverage } = await import('../fixture.js')
-      const { log } = await import('../../logger.js')
 
       // Configure dev mode collector to fail connection (production mode)
       mockDevModeCollectorConnectReturn = false
 
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
       const result = await startServerCoverage({ cdpPort: 9230 })
 
       expect(result).toBe(false)
-      expect(log).toHaveBeenCalledWith(expect.stringContaining('Production mode'))
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Production mode'))
+
+      consoleSpy.mockRestore()
     })
 
     it('should return true when dev mode connection succeeds', async () => {
       const { startServerCoverage } = await import('../fixture.js')
-      const { log } = await import('../../logger.js')
 
       // Configure dev mode collector to succeed connection (dev mode)
       mockDevModeCollectorConnectReturn = true
@@ -369,10 +371,14 @@ describe('playwright integration', () => {
       // Mock fetch for warmup request
       global.fetch = vi.fn().mockResolvedValue({ ok: true })
 
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
       const result = await startServerCoverage({ cdpPort: 9230 })
 
       expect(result).toBe(true)
-      expect(log).toHaveBeenCalledWith(expect.stringContaining('Dev mode'))
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Dev mode'))
+
+      consoleSpy.mockRestore()
     })
 
     it('should handle warmup request failure gracefully', async () => {

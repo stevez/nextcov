@@ -38,3 +38,10 @@ export {
   type V8ServerCoverageEntry,
   type V8ServerCollectorConfig,
 } from './v8-server.js'
+
+export {
+  // CDP utilities
+  isCdpPortAvailable,
+  connectToCdp,
+  connectAndStartCoverage,
+} from './cdp-utils.js'
