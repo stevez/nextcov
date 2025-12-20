@@ -693,6 +693,112 @@ describe('CoverageMerger - merge functions with different structures', () => {
   })
 })
 
+describe('CoverageMerger - branch merge accumulation', () => {
+  it('should accumulate max branch counts across 3+ sources', async () => {
+    // This test verifies the fix for a bug where branch counts were not properly
+    // accumulated when merging 3 or more coverage sources.
+    // The bug: baseCounts was captured once before the loop, so each iteration
+    // used the original values instead of accumulated values.
+    // Example: [4,10] + [0,65] should = [4,65], but bug gave [0,65]
+    const merger = new CoverageMerger({ applyFixes: false })
+
+    // Create 3 maps with different branch coverage for the same branch
+    // Map1 (unit): branch 0 has counts [2, 0] - first branch covered
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [2, 0] } },
+    })
+    // Map2 (component): branch 0 has counts [4, 10] - both branches covered
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [4, 10] } },
+    })
+    // Map3 (integration): branch 0 has counts [0, 65] - second branch covered more
+    const map3 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [0, 65] } },
+    })
+
+    const result = await merger.merge(map1, map2, map3)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Should have max of all: [4, 65]
+    // Before the fix, this would incorrectly be [0, 65] because the second
+    // iteration (map3) would use original baseCounts [0, 0] instead of
+    // accumulated [4, 10]
+    expect(coverage.b['0']).toEqual([4, 65])
+  })
+
+  it('should accumulate max branch counts with 4 sources', async () => {
+    const merger = new CoverageMerger({ applyFixes: false })
+
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [1, 0] } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [0, 2] } },
+    })
+    const map3 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [3, 0] } },
+    })
+    const map4 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [0, 4] } },
+    })
+
+    const result = await merger.merge(map1, map2, map3, map4)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Should have max of all: [3, 4]
+    expect(coverage.b['0']).toEqual([3, 4])
+  })
+
+  it('should work correctly with 2 sources (baseline)', async () => {
+    // 2 sources worked fine before the fix, this is a sanity check
+    const merger = new CoverageMerger({ applyFixes: false })
+
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [4, 10] } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [0, 65] } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Should have max of both: [4, 65]
+    expect(coverage.b['0']).toEqual([4, 65])
+  })
+
+  it('should handle multiple branches across 3 sources', async () => {
+    const merger = new CoverageMerger({ applyFixes: false })
+
+    const map1 = createTestCoverageMap({
+      '/test.ts': {
+        statements: { '0': 1 },
+        branches: { '0': [1, 0], '1': [0, 5] },
+      },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': {
+        statements: { '0': 1 },
+        branches: { '0': [0, 2], '1': [3, 0] },
+      },
+    })
+    const map3 = createTestCoverageMap({
+      '/test.ts': {
+        statements: { '0': 1 },
+        branches: { '0': [3, 1], '1': [1, 1] },
+      },
+    })
+
+    const result = await merger.merge(map1, map2, map3)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Branch 0: max([1,0], [0,2], [3,1]) = [3, 2]
+    expect(coverage.b['0']).toEqual([3, 2])
+    // Branch 1: max([0,5], [3,0], [1,1]) = [3, 5]
+    expect(coverage.b['1']).toEqual([3, 5])
+  })
+})
+
 describe('CoverageMerger - loadCoverageJson with file', () => {
   let testDir: string
 

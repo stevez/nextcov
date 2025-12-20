@@ -326,11 +326,11 @@ export class CoverageMerger {
     for (const [key, branch] of Object.entries(merged.branchMap) as [string, BranchEntry][]) {
       const locKey = locationKey(branch.loc)
       const line = lineKey(branch.loc)
-      const baseCounts = merged.b[key] || []
       for (const lookup of allLookups) {
         const counts = lookup.branches.get(locKey) ?? lookup.branchesByLine.get(line)
         if (counts !== undefined) {
-          merged.b[key] = baseCounts.map((c: number, i: number) =>
+          const currentCounts = merged.b[key] || []
+          merged.b[key] = currentCounts.map((c: number, i: number) =>
             Math.max(c, counts[i] || 0)
           )
         }
