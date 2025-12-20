@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.3] - 2024-12-20
+
+### Fixed
+
+- **Remove phantom branches from webpack module wrappers** - Fixed E2E tests reporting more branches than unit tests
+  - When webpack bundles async modules, it wraps them in `__webpack_require__.a(module, async (deps, result) => { try { ... } })`
+  - V8 sees the `try` block as a branch point and records it
+  - Source maps map this back to line 1, column 0 of the original source file with zero length
+  - These "phantom branches" don't represent any real branching logic in the source code
+  - New `removePhantomBranches()` method filters out branches with type "if" at line 1:0 with zero-length location
+  - Example: restaurant-reviews-platform had 403 → 395 branches (8 phantom removed)
+  - Example: nextcov-example had 17 → 14 branches (3 phantom removed)
+  - Only affects branch counts; statements, functions, and lines are unchanged
+
 ## [0.8.2] - 2024-12-19
 
 ### Fixed
