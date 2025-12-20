@@ -640,6 +640,32 @@ const merged = await merger.merge(map1, map2, map3)
 - Ensure Next.js dev server is started with `NODE_V8_COVERAGE=.v8-coverage` and `NODE_OPTIONS='--inspect=9230'`
 - Check that your source files are in the `sourceRoot` directory (default: `src`)
 
+### Inconsistent Branch Counts Between Unit and E2E Tests
+
+If you notice E2E coverage has more branches than unit tests for the same file, it's likely because Next.js is transpiling optional chaining (`?.`) and nullish coalescing (`??`) operators.
+
+**The problem:**
+- Source code: `existingReview?.rating ?? 5`
+- Transpiled: `existingReview === null || existingReview === void 0 ? void 0 : existingReview.rating`
+- Unit tests see 1 branch (source), E2E sees 3 branches (transpiled)
+
+**The solution:** Add a `browserslist` to your `package.json` targeting modern browsers:
+
+```json
+{
+  "browserslist": [
+    "chrome 111",
+    "edge 111",
+    "firefox 111",
+    "safari 16.4"
+  ]
+}
+```
+
+This tells Next.js SWC to preserve `?.` and `??` operators since modern browsers support them natively. After adding this, rebuild your app and branch counts should be consistent.
+
+**Note:** These browser versions match the [Next.js recommended modern targets](https://nextjs.org/docs/architecture/supported-browsers). Adjust based on your actual browser support requirements.
+
 ### Slow Coverage Processing
 
 If coverage processing takes a very long time (30+ seconds), you may have large bundled dependencies. V8 coverage works on the bundled output, so large libraries bundled into your app will slow down source map processing.
