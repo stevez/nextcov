@@ -160,18 +160,23 @@ export async function isCdpPortAvailable(
   }
 }
 
+/** Default CDP connection timeout (30 seconds) */
+const DEFAULT_CDP_TIMEOUT = 30000
+
 /**
  * Connect to CDP only (without starting coverage)
  * Use this when NODE_V8_COVERAGE handles coverage collection
  *
  * @param port - CDP port to connect to
- * @param mode - Optional mode string for logging
+ * @param mode - Optional mode string for logging (e.g., "dev", "prod")
  * @param skipAvailabilityCheck - Skip the pre-check (default: false)
+ * @param timeout - Connection timeout in milliseconds (default: 30000)
  */
 export async function connectToCdp(
   port: number,
   mode?: string,
-  skipAvailabilityCheck: boolean = false
+  skipAvailabilityCheck: boolean = false,
+  timeout: number = DEFAULT_CDP_TIMEOUT
 ): Promise<MonocartCDPClient | null> {
   const suffix = mode ? ` (${mode})` : ''
 
@@ -186,8 +191,18 @@ export async function connectToCdp(
   }
 
   try {
-    log(`  Connecting to CDP${suffix} at port ${port}...`)
-    const client = await CDPClient({ port })
+    log(`  Connecting to CDP${suffix} at port ${port} (timeout: ${timeout}ms)...`)
+
+    // Create a timeout promise that rejects after the specified time
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`CDP connection timed out after ${timeout}ms`)), timeout)
+    })
+
+    // Race between the connection and timeout
+    const client = await Promise.race([
+      CDPClient({ port }),
+      timeoutPromise
+    ])
 
     if (!client) {
       log(`  ⚠️ Failed to create CDP client${suffix}`)
@@ -206,15 +221,17 @@ export async function connectToCdp(
  * Connect to CDP and start JS coverage collection
  *
  * @param port - CDP port to connect to
- * @param mode - Optional mode string for logging
+ * @param mode - Optional mode string for logging (e.g., "dev", "prod")
  * @param skipAvailabilityCheck - Skip the pre-check (default: false)
+ * @param timeout - Connection timeout in milliseconds (default: 30000)
  */
 export async function connectAndStartCoverage(
   port: number,
   mode?: string,
-  skipAvailabilityCheck: boolean = false
+  skipAvailabilityCheck: boolean = false,
+  timeout: number = DEFAULT_CDP_TIMEOUT
 ): Promise<MonocartCDPClient | null> {
-  const client = await connectToCdp(port, mode, skipAvailabilityCheck)
+  const client = await connectToCdp(port, mode, skipAvailabilityCheck, timeout)
   if (!client) {
     return null
   }

@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.5] - 2024-12-21
+
+### Changed
+
+- **Reduced npm package size** - Excluded test files (`dist/**/__tests__`) from published package (~316KB savings)
+- **CDP connection timeout** - Added configurable timeout for CDP connections (default: 30 seconds)
+  - New `cdpTimeout` config option for slow CI environments
+  - Uses `Promise.race` to enforce timeout on CDP client connections
+
+### Security
+
+- **Path traversal protection** - Applied `isPathWithinBase()` validation in `sourcemap-loader.ts` and `processor.ts` to prevent directory traversal attacks when resolving source file paths
+
+### Improved
+
+- **Graceful JSON error handling** - Coverage file parsing in `v8-reader.ts` now uses `safeJsonParse()` to skip corrupted/truncated JSON files instead of crashing
+
 ## [0.8.4] - 2024-12-20
 
 ### Improved

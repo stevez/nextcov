@@ -324,5 +324,71 @@ describe('V8CoverageReader', () => {
 
       expect(result.result.length).toBeGreaterThanOrEqual(1)
     })
+
+    it('should skip corrupted JSON files and continue processing', async () => {
+      const validCoverage: V8Coverage = {
+        result: [{ scriptId: '1', url: '/valid.js', functions: [] }],
+      }
+
+      // Write a valid coverage file
+      await fs.writeFile(
+        join(testDir, 'coverage-1.json'),
+        JSON.stringify(validCoverage)
+      )
+      // Write a corrupted JSON file
+      await fs.writeFile(
+        join(testDir, 'coverage-2.json'),
+        '{ invalid json content'
+      )
+
+      const result = await reader.readFromDirectory(testDir)
+
+      // Should still have the valid coverage
+      expect(result.result.length).toBeGreaterThanOrEqual(1)
+      expect(result.result.some(r => r.url === '/valid.js')).toBe(true)
+    })
+
+    it('should handle completely empty JSON files', async () => {
+      const validCoverage: V8Coverage = {
+        result: [{ scriptId: '1', url: '/valid.js', functions: [] }],
+      }
+
+      await fs.writeFile(
+        join(testDir, 'coverage-1.json'),
+        JSON.stringify(validCoverage)
+      )
+      // Write an empty file
+      await fs.writeFile(
+        join(testDir, 'coverage-2.json'),
+        ''
+      )
+
+      const result = await reader.readFromDirectory(testDir)
+
+      // Should still have the valid coverage
+      expect(result.result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should handle truncated JSON files', async () => {
+      const validCoverage: V8Coverage = {
+        result: [{ scriptId: '1', url: '/valid.js', functions: [] }],
+      }
+
+      await fs.writeFile(
+        join(testDir, 'coverage-1.json'),
+        JSON.stringify(validCoverage)
+      )
+      // Write a truncated JSON file (might happen if process was killed)
+      await fs.writeFile(
+        join(testDir, 'coverage-2.json'),
+        '{"result":[{"scriptId":"1","url":"/test.js","functions":'
+      )
+
+      const result = await reader.readFromDirectory(testDir)
+
+      // Should still have the valid coverage from the first file
+      expect(result.result.length).toBeGreaterThanOrEqual(1)
+      expect(result.result.some(r => r.url === '/valid.js')).toBe(true)
+    })
   })
 })

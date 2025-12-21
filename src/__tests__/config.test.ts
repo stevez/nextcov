@@ -5,6 +5,7 @@ import {
   clearConfigCache,
   normalizePath,
   loadNextcovConfig,
+  isPathWithinBase,
   DEFAULT_NEXTCOV_CONFIG,
   DEFAULT_INCLUDE_PATTERNS,
   DEFAULT_EXCLUDE_PATTERNS,
@@ -220,5 +221,45 @@ describe('loadNextcovConfig', () => {
 
     // Both should return defaults since files don't exist
     expect(config1.cdpPort).toBe(config2.cdpPort)
+  })
+})
+
+describe('isPathWithinBase', () => {
+  it('should return true for paths within base directory', () => {
+    expect(isPathWithinBase('/project/src/file.ts', '/project')).toBe(true)
+    expect(isPathWithinBase('/project/src/nested/file.ts', '/project')).toBe(true)
+  })
+
+  it('should return true for the base directory itself', () => {
+    expect(isPathWithinBase('/project', '/project')).toBe(true)
+  })
+
+  it('should return false for parent directory traversal', () => {
+    expect(isPathWithinBase('/project/../etc/passwd', '/project')).toBe(false)
+    expect(isPathWithinBase('../etc/passwd', '/project')).toBe(false)
+  })
+
+  it('should return false for paths outside base directory', () => {
+    expect(isPathWithinBase('/other/file.ts', '/project')).toBe(false)
+    expect(isPathWithinBase('/etc/passwd', '/project')).toBe(false)
+  })
+
+  it('should not match partial directory names', () => {
+    // /project-other should not match /project
+    expect(isPathWithinBase('/project-other/file.ts', '/project')).toBe(false)
+    expect(isPathWithinBase('/projects/file.ts', '/project')).toBe(false)
+  })
+
+  it('should handle relative paths', () => {
+    // Relative paths are resolved against cwd
+    const cwd = process.cwd()
+    expect(isPathWithinBase('src/file.ts', cwd)).toBe(true)
+    expect(isPathWithinBase('./src/file.ts', cwd)).toBe(true)
+  })
+
+  it('should handle Windows-style paths', () => {
+    // Test with backslashes (Windows paths)
+    expect(isPathWithinBase('C:\\project\\src\\file.ts', 'C:\\project')).toBe(true)
+    expect(isPathWithinBase('C:\\other\\file.ts', 'C:\\project')).toBe(false)
   })
 })
