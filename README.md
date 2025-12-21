@@ -666,6 +666,66 @@ This tells Next.js SWC to preserve `?.` and `??` operators since modern browsers
 
 **Note:** These browser versions match the [Next.js recommended modern targets](https://nextjs.org/docs/architecture/supported-browsers). Adjust based on your actual browser support requirements.
 
+### V8 Does Not Track Ternary Operators and && Patterns Returning JSX
+
+V8 coverage has a known limitation: it does not properly track branch coverage for ternary operators (`? :`) and logical AND (`&&`) patterns when they return JSX.
+
+**The problem:**
+
+```tsx
+// These patterns are NOT tracked by V8 coverage
+function MyComponent({ user }) {
+  return (
+    <div>
+      {user ? <LoggedIn /> : <LoggedOut />}  {/* ternary - not tracked */}
+      {user && <Welcome name={user.name} />}  {/* && pattern - not tracked */}
+    </div>
+  )
+}
+```
+
+V8 sees these as expressions, not branches, so even if your tests exercise both paths, the coverage report may show them as uncovered or only partially covered.
+
+**The solution:** Refactor to use `if` statements with early returns in helper components:
+
+```tsx
+// These patterns ARE properly tracked by V8 coverage
+function UserGreeting({ user }: { user: User | null }) {
+  if (!user) {
+    return <LoggedOut />
+  }
+  return <LoggedIn />
+}
+
+function WelcomeMessage({ user }: { user: User | null }) {
+  if (!user) {
+    return null
+  }
+  return <Welcome name={user.name} />
+}
+
+function MyComponent({ user }) {
+  return (
+    <div>
+      <UserGreeting user={user} />
+      <WelcomeMessage user={user} />
+    </div>
+  )
+}
+```
+
+**Why this works:**
+- `if` statements are recognized as proper branches by V8
+- Each branch path is tracked separately
+- Coverage reports accurately show which branches were executed
+
+**When to refactor:**
+- When you notice branch coverage gaps between unit tests and E2E tests
+- When merged coverage shows uncovered branches that you know are tested
+- When you need accurate branch coverage metrics for CI/CD gates
+
+**Note:** This is a V8 limitation, not a nextcov issue. The same behavior occurs with Vitest's V8 coverage provider. The refactoring pattern shown above ensures consistent, accurate branch coverage across all V8-based coverage tools.
+
 ### Slow Coverage Processing
 
 If coverage processing takes a very long time (30+ seconds), you may have large bundled dependencies. V8 coverage works on the bundled output, so large libraries bundled into your app will slow down source map processing.
