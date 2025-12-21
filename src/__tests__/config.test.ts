@@ -258,6 +258,10 @@ describe('isPathWithinBase', () => {
   })
 
   it('should handle Windows-style paths', () => {
+    // Skip on non-Windows platforms since path.resolve behaves differently
+    if (process.platform !== 'win32') {
+      return
+    }
     // Test with backslashes (Windows paths)
     expect(isPathWithinBase('C:\\project\\src\\file.ts', 'C:\\project')).toBe(true)
     expect(isPathWithinBase('C:\\other\\file.ts', 'C:\\project')).toBe(false)
