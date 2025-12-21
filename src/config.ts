@@ -5,7 +5,7 @@
  * Config can be defined in playwright.config.ts under the 'nextcov' property.
  */
 
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { existsSync } from 'node:fs'
 import type { Watermarks, ReporterType } from './types.js'
 
@@ -107,6 +107,12 @@ export interface NextcovConfig {
    * This is useful for profiling coverage processing without the noise of debug logs.
    */
   timing?: boolean
+
+  /**
+   * CDP connection timeout in milliseconds (default: 30000).
+   * Increase this value for slow CI environments where CDP connections may take longer.
+   */
+  cdpTimeout?: number
 }
 
 /**
@@ -148,10 +154,12 @@ export interface ResolvedNextcovConfig {
   devMode: ResolvedDevModeOptions
   log: boolean
   timing: boolean
+  cdpTimeout: number
 }
 
 const DEFAULT_OUTPUT_DIR = 'coverage/e2e'
 const DEFAULT_CDP_PORT = parseInt(process.env.CDP_PORT || '9230', 10)
+const DEFAULT_CDP_TIMEOUT = 30000 // 30 seconds
 
 /**
  * Default dev mode options
@@ -185,6 +193,7 @@ export const DEFAULT_NEXTCOV_CONFIG: ResolvedNextcovConfig = {
   devMode: DEFAULT_DEV_MODE_OPTIONS,
   log: false,
   timing: false,
+  cdpTimeout: DEFAULT_CDP_TIMEOUT,
 }
 
 /**
@@ -251,6 +260,7 @@ export function resolveNextcovConfig(config?: NextcovConfig, playwrightBaseUrl?:
     devMode: resolveDevModeOptions(config?.devMode, cdpPort, playwrightBaseUrl),
     log: config?.log ?? DEFAULT_NEXTCOV_CONFIG.log,
     timing: config?.timing ?? DEFAULT_NEXTCOV_CONFIG.timing,
+    cdpTimeout: config?.cdpTimeout ?? DEFAULT_NEXTCOV_CONFIG.cdpTimeout,
   }
 }
 
@@ -332,4 +342,29 @@ export function clearConfigCache(): void {
  */
 export function normalizePath(filepath: string): string {
   return filepath.replace(/\\/g, '/')
+}
+
+/**
+ * Check if a path is safely within a base directory (path traversal protection).
+ * Prevents directory traversal attacks where user-supplied paths could escape
+ * the intended directory boundary.
+ *
+ * @param filePath - The path to validate (can be relative or absolute)
+ * @param baseDir - The base directory that filePath must be within
+ * @returns true if filePath resolves to a location within baseDir
+ *
+ * @example
+ * ```typescript
+ * isPathWithinBase('/project/src/file.ts', '/project') // true
+ * isPathWithinBase('../etc/passwd', '/project') // false
+ * isPathWithinBase('/project/../etc/passwd', '/project') // false
+ * ```
+ */
+export function isPathWithinBase(filePath: string, baseDir: string): boolean {
+  const resolvedPath = resolve(filePath)
+  const resolvedBase = resolve(baseDir)
+  // Ensure the resolved path starts with the base directory
+  // Add path separator to prevent matching partial directory names
+  // e.g., /project-other should not match /project
+  return resolvedPath === resolvedBase || resolvedPath.startsWith(resolvedBase + sep)
 }

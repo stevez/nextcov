@@ -17,6 +17,7 @@ import {
   DEFAULT_INCLUDE_PATTERNS,
   COVERAGE_FINAL_JSON,
   normalizePath,
+  isPathWithinBase,
 } from './config.js'
 import type {
   CoverageOptions,
@@ -111,6 +112,7 @@ export class CoverageProcessor {
 
   /**
    * Add uncovered source files to coverage map
+   * Includes path traversal protection to ensure all files are within project root.
    */
   private async addUncoveredFiles(coverageMap: CoverageMap): Promise<void> {
     const includePatterns = this.options.include || DEFAULT_INCLUDE_PATTERNS
@@ -133,7 +135,10 @@ export class CoverageProcessor {
     // Filter out files already in coverage
     // Normalize paths to forward slashes for cross-platform comparison
     const coveredFiles = new Set(coverageMap.files().map(normalizePath))
-    const uncoveredFiles = sourceFiles.filter((f) => !coveredFiles.has(normalizePath(f)))
+    const uncoveredFiles = sourceFiles
+      .filter((f) => !coveredFiles.has(normalizePath(f)))
+      // Path traversal protection: ensure all files are within project root
+      .filter((f) => isPathWithinBase(f, this.projectRoot))
 
     log(`Adding ${uncoveredFiles.length} source files for complete coverage...`)
 

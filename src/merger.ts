@@ -629,7 +629,6 @@ export class CoverageMerger {
    * inflate the counts beyond what the source coverage files report.
    * E2E coverage is the source of truth for totals.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private applyFixes(_coverageMap: CoverageMap): void {
     // No fixes applied - preserve source coverage totals exactly
   }

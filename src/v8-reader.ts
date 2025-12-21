@@ -10,6 +10,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { mergeProcessCovs } from '@bcoe/v8-coverage'
 import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, EntryFilter } from './types.js'
+import { safeJsonParse, warn } from './logger.js'
 
 const DEFAULT_EXCLUDE_PATTERNS = [
   '/node_modules/',
@@ -42,7 +43,12 @@ export class V8CoverageReader {
     for (const file of coverageFiles) {
       const filePath = join(dir, file)
       const content = await fs.readFile(filePath, 'utf-8')
-      const coverage: V8Coverage = JSON.parse(content)
+      const coverage = safeJsonParse<V8Coverage>(content, `coverage file ${file}`)
+
+      if (!coverage) {
+        warn(`Skipping corrupted coverage file: ${filePath}`)
+        continue
+      }
 
       // Merge coverage data
       merged = mergeProcessCovs([merged, coverage]) as V8Coverage

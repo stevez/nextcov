@@ -11,7 +11,7 @@ import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import convertSourceMap from 'convert-source-map'
 import type { SourceMapData, SourceFile, V8Coverage } from './types.js'
-import { DEFAULT_NEXTCOV_CONFIG } from './config.js'
+import { DEFAULT_NEXTCOV_CONFIG, isPathWithinBase } from './config.js'
 import { FILE_PROTOCOL, extractNextPath, SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN, normalizeWebpackSourcePath, SOURCE_CACHE_MAX_SIZE } from './constants.js'
 import { log, formatError } from './logger.js'
 
@@ -72,32 +72,45 @@ export class SourceMapLoader {
 
   /**
    * Convert URL to file path
+   * Includes path traversal protection to prevent escaping project boundaries.
    */
   urlToFilePath(url: string): string | null {
+    let filePath: string | null = null
+
     // Handle file:// URLs
     if (url.startsWith(FILE_PROTOCOL)) {
-      return fileURLToPath(url)
+      filePath = fileURLToPath(url)
     }
-
     // Handle Next.js URLs (works for both /_next/... and http://.../_next/...)
-    const nextPath = extractNextPath(url)
-    if (nextPath) {
-      return this.nextPathToFilePath(nextPath)
+    else {
+      const nextPath = extractNextPath(url)
+      if (nextPath) {
+        filePath = this.nextPathToFilePath(nextPath)
+      }
+      // Handle relative paths
+      else if (url.startsWith('/')) {
+        filePath = join(this.projectRoot, decodeURIComponent(url))
+      }
+      // Handle http(s) URLs without /_next/ - extract pathname
+      else {
+        try {
+          const parsed = new URL(url)
+          filePath = join(this.projectRoot, decodeURIComponent(parsed.pathname))
+        } catch (error) {
+          log(`  Invalid URL ${url}: ${formatError(error)}`)
+          return null
+        }
+      }
     }
 
-    // Handle relative paths
-    if (url.startsWith('/')) {
-      return join(this.projectRoot, decodeURIComponent(url))
-    }
-
-    // Handle http(s) URLs without /_next/ - extract pathname
-    try {
-      const parsed = new URL(url)
-      return join(this.projectRoot, decodeURIComponent(parsed.pathname))
-    } catch (error) {
-      log(`  Invalid URL ${url}: ${formatError(error)}`)
+    // Path traversal protection: ensure resolved path is within project root
+    // This prevents malicious URLs like "/../../../etc/passwd" from escaping
+    if (filePath && !isPathWithinBase(filePath, this.projectRoot)) {
+      log(`  Path traversal blocked: ${url} resolves outside project root`)
       return null
     }
+
+    return filePath
   }
 
   /**
