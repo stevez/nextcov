@@ -3,15 +3,38 @@
  *
  * Manages a pool of worker threads for CPU-intensive astV8ToIstanbul operations.
  * Workers are reused across multiple tasks for efficiency.
+ *
+ * Set NEXTCOV_WORKERS=0 to disable worker threads and run in single-threaded mode.
+ * This can be faster in environments with high worker thread overhead (e.g., some CI).
  */
 import { Worker } from 'node:worker_threads'
 import { cpus } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { existsSync } from 'node:fs'
+import type { WorkerInput } from './ast-worker.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+
+/**
+ * Determine the number of workers to use.
+ * - NEXTCOV_WORKERS env var overrides auto-detection (0 = single-threaded)
+ * - Otherwise use half of CPUs, min 2, max 8
+ */
+function getWorkerCount(): number {
+  const envWorkers = process.env.NEXTCOV_WORKERS
+  if (envWorkers !== undefined) {
+    const count = parseInt(envWorkers, 10)
+    if (!isNaN(count) && count >= 0) {
+      return count
+    }
+  }
+
+  const coreCount = cpus().length
+  return Math.min(8, Math.max(2, Math.floor(coreCount / 2)))
+}
+
 
 /**
  * Find the worker file path.
@@ -88,10 +111,12 @@ export class WorkerPool {
   private workerPath: string
   private maxWorkers: number
   private isTerminated = false
+  private _isSingleThreaded: boolean
 
   constructor(maxWorkers?: number) {
-    // Use half of available CPUs, minimum 2, maximum 8
-    this.maxWorkers = maxWorkers ?? Math.min(8, Math.max(2, Math.floor(cpus().length / 2)))
+    // Use getWorkerCount() for auto-detection, or explicit value if provided
+    this.maxWorkers = maxWorkers ?? getWorkerCount()
+    this._isSingleThreaded = this.maxWorkers === 0
     // Worker path is the compiled JS file (handles both dist/ and test environments)
     this.workerPath = findWorkerPath()
   }
@@ -183,10 +208,34 @@ export class WorkerPool {
       throw new Error('WorkerPool has been terminated')
     }
 
+    // Single-threaded mode: run directly in main thread
+    if (this._isSingleThreaded) {
+      return this.runTaskDirect(task)
+    }
+
     return new Promise((resolve, reject) => {
       this.taskQueue.push({ task, resolve, reject })
       this.processNextTask()
     })
+  }
+
+  /**
+   * Run task directly in main thread (single-threaded mode).
+   * Avoids worker thread overhead which can be significant in some environments.
+   * Uses dynamic import to avoid ESM/CJS issues when module is loaded but not used.
+   */
+  private async runTaskDirect(task: WorkerTask): Promise<WorkerResult> {
+    // Dynamic import to avoid loading ast-worker.ts at module load time
+    const { processEntry } = await import('./ast-worker.js')
+    const input: WorkerInput = {
+      code: task.code,
+      sourceMap: task.sourceMap,
+      coverageUrl: task.coverageUrl,
+      functions: task.functions,
+      srcCodeRange: task.srcCodeRange,
+      srcCodeRanges: task.srcCodeRanges,
+    }
+    return processEntry(input) as Promise<WorkerResult>
   }
 
   async terminate(): Promise<void> {
@@ -209,6 +258,11 @@ export class WorkerPool {
 
   get queuedTasks(): number {
     return this.taskQueue.length
+  }
+
+  /** Returns true if running in single-threaded mode (no worker threads) */
+  get isSingleThreaded(): boolean {
+    return this._isSingleThreaded
   }
 }
 

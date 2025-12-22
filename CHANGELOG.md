@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2024-12-22
+
+### Added
+
+- **Single-threaded mode via `NEXTCOV_WORKERS=0`** - Disable worker threads for low-core CI environments
+  - Set `NEXTCOV_WORKERS=0` to run AST processing directly in the main thread
+  - Avoids worker thread overhead which can be significant on 2-core GitHub Actions runners
+  - Uses dynamic import to load `ast-worker.js` only when needed
+  - Semantics: `0` = main thread (fastest for low-core), `1` = single worker (not recommended), `2+` = parallel workers
+  - Performance note: With the multi-range optimization from 0.9.0, single-threaded mode performs similarly to multi-threaded mode (~800ms vs ~830ms) since per-entry processing is now ~22ms
+
+### Changed
+
+- **Increased `SOURCE_MAP_RANGE_THRESHOLD` from 50KB to 100KB** - More conservative threshold for source map range optimization
+
 ## [0.9.0] - 2024-12-22
 
 ### Performance

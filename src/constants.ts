@@ -260,7 +260,7 @@ export const IMPLICIT_BRANCH_TYPE = 'if'
  * Files larger than this will compute the source code range to skip
  * processing AST nodes outside where source code actually maps to.
  */
-export const SOURCE_MAP_RANGE_THRESHOLD = 50_000 // 50KB
+export const SOURCE_MAP_RANGE_THRESHOLD = 100_000 // 100KB
 
 /**
  * Padding in bytes before the first source mapping.
