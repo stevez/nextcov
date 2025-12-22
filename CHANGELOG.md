@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2024-12-22
+
+### Fixed
+
+- **Filter Next.js internal sources on Linux/CI** - Major performance fix for CI environments
+  - Previously: Unix absolute paths like `/src/client/...` or `/home/runner/src/...` bypassed the projectRoot check
+  - Now: Unix paths are properly validated against projectRoot, same as Windows paths
+  - Impact: Bundles like `908.js` (1.4MB, 279 sources) that contain only Next.js internals are now skipped entirely
+  - Expected CI improvement: ~10 seconds → ~1 second for coverage processing
+
 ## [0.9.1] - 2024-12-22
 
 ### Added

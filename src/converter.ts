@@ -1774,6 +1774,12 @@ export class CoverageConverter {
       }
     }
 
+    // Unix absolute path check - reject paths like /src/client/... or /home/runner/src/...
+    // that are Next.js internals, not user code
+    if (source.startsWith('/') && !source.startsWith(this.projectRoot)) {
+      return `Unix path not in project (source starts with ${source.substring(0, 30)}, projectRoot=${this.projectRoot.substring(0, 30)})`
+    }
+
     if (normalizedSource.includes('node_modules/') || normalizedSource.includes('node_modules\\')) {
       return 'node_modules'
     }
