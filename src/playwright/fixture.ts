@@ -8,6 +8,7 @@
 import * as path from 'path'
 import type { Page, TestInfo } from '@playwright/test'
 import { CoverageProcessor } from '../processor.js'
+import { terminateWorkerPool } from '../worker-pool.js'
 import type { CoverageOptions, CoverageResult, ReporterType } from '../types.js'
 import {
   DEFAULT_NEXTCOV_CONFIG,
@@ -320,6 +321,9 @@ async function processCoverageAndGenerateReports(
   } as CoverageOptions)
 
   const result = await processor.processAllCoverage(allCoverage)
+
+  // Terminate worker pool to free memory
+  await terminateWorkerPool()
 
   log(`\n✅ Coverage reports generated at: ${path.resolve(opts.projectRoot, opts.outputDir)}`)
   if (result?.summary) {

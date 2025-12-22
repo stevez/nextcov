@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2024-12-22
+
+### Performance
+
+- **Multi-range source code filtering for large bundles** - Dramatically improved AST processing performance for large webpack bundles
+  - Previously: Used a single min-max byte range for source code filtering (e.g., 515KB range for 73KB of user code)
+  - Now: Computes multiple contiguous byte ranges, identifying separate "islands" of user code
+  - Example: owner/create/page.js now processes 8 ranges totaling 73KB instead of a single 515KB range
+  - Performance improvement: ~64% faster total convert time (2000ms → 720ms in restaurant-reviews-platform)
+  - Added `srcCodeRanges` property to WorkerInput (deprecating single `srcCodeRange`)
+  - Gap threshold of 1KB between ranges ensures proper merging of adjacent user modules
+  - Padding: 1KB before and 5KB after each range to capture boundary nodes
+
+- **Lowered optimization threshold from 200KB to 50KB** - More bundles now benefit from source code range filtering
+  - The multi-range optimization is powerful enough to apply to smaller bundles
+
+### Fixed
+
+- **Memory leak in worker pool** - Worker threads are now properly terminated after coverage processing completes
+  - Previously: Worker threads remained alive after processing, causing memory buildup
+  - Now: `terminateWorkerPool()` is called after `processAllCoverage()` completes
+  - Fixes Windows crash (exit code 3221226505) that occurred intermittently
+
+### Added
+
+- **Unit tests for srcCodeRanges** - Added 7 new tests covering multiple ranges, preference over deprecated srcCodeRange, fallback behavior, empty arrays, overlapping ranges, and webpack bundle scenarios
+
 ## [0.8.5] - 2024-12-21
 
 ### Changed

@@ -57,6 +57,7 @@ interface WorkerTask {
     }>
   }>
   srcCodeRange: { minOffset: number; maxOffset: number } | null
+  srcCodeRanges?: Array<{ minOffset: number; maxOffset: number }>
 }
 
 interface WorkerResult {
@@ -67,6 +68,10 @@ interface WorkerResult {
     parse: number
     convert: number
     total: number
+  }
+  filterStats?: {
+    original: number
+    filtered: number
   }
 }
 

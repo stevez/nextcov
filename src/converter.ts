@@ -1384,14 +1384,14 @@ export class CoverageConverter {
       }
     }
 
-    // For large bundles, compute the byte range where src code exists
-    // This allows us to skip processing AST nodes outside this range
-    let srcCodeRange: { minOffset: number; maxOffset: number } | null = null
+    // Compute multiple src code ranges for precise optimization
+    // This identifies separate "islands" of user code in webpack bundles
+    let srcCodeRanges: Array<{ minOffset: number; maxOffset: number }> = []
     if (sanitizedSourceMap && code.length > SOURCE_MAP_RANGE_THRESHOLD) {
-      srcCodeRange = this.computeSrcCodeRange(sanitizedSourceMap, code)
-      if (srcCodeRange) {
-        const rangeSize = srcCodeRange.maxOffset - srcCodeRange.minOffset
-        log(`  🎯 Src code range: ${srcCodeRange.minOffset}-${srcCodeRange.maxOffset} (${(rangeSize / 1024).toFixed(0)}KB of ${(code.length / 1024).toFixed(0)}KB)`)
+      srcCodeRanges = this.computeSrcCodeRanges(sanitizedSourceMap, code)
+      if (srcCodeRanges.length > 0) {
+        const totalSize = srcCodeRanges.reduce((sum, r) => sum + (r.maxOffset - r.minOffset), 0)
+        log(`  🎯 Src code ranges: ${srcCodeRanges.length} ranges (${(totalSize / 1024).toFixed(0)}KB of ${(code.length / 1024).toFixed(0)}KB)`)
       }
     }
 
@@ -1409,12 +1409,22 @@ export class CoverageConverter {
         wrapperLength: 0,
         ignoreClassMethods: [],
         ignoreNode: (node, type) => {
-          // For large bundles, skip nodes outside the src code range
+          // For large bundles, skip nodes outside all src code ranges
           // This dramatically reduces processing time by avoiding source map lookups
           // for code that will never map to our src files
           const astNode = node as AstNodeWithPosition
-          if (srcCodeRange && typeof astNode.start === 'number' && typeof astNode.end === 'number') {
-            if (astNode.end < srcCodeRange.minOffset || astNode.start > srcCodeRange.maxOffset) {
+          const nodeStart = astNode.start
+          const nodeEnd = astNode.end
+          if (
+            srcCodeRanges.length > 0 &&
+            typeof nodeStart === 'number' &&
+            typeof nodeEnd === 'number'
+          ) {
+            // Check if node overlaps with ANY of the code ranges
+            const overlapsWithUserCode = srcCodeRanges.some(range =>
+              !(nodeEnd < range.minOffset || nodeStart > range.maxOffset)
+            )
+            if (!overlapsWithUserCode) {
               return 'ignore-this-and-nested-nodes'
             }
           }
@@ -1540,13 +1550,14 @@ export class CoverageConverter {
       }
     }
 
-    // Compute src code range for optimization
-    let srcCodeRange: { minOffset: number; maxOffset: number } | null = null
+    // Compute multiple src code ranges for precise optimization
+    // This identifies separate "islands" of user code in the webpack bundle
+    let srcCodeRanges: Array<{ minOffset: number; maxOffset: number }> = []
     if (sanitizedSourceMap && code.length > SOURCE_MAP_RANGE_THRESHOLD) {
-      srcCodeRange = this.computeSrcCodeRange(sanitizedSourceMap, code)
-      if (srcCodeRange) {
-        const rangeSize = srcCodeRange.maxOffset - srcCodeRange.minOffset
-        log(`  🎯 Src code range: ${srcCodeRange.minOffset}-${srcCodeRange.maxOffset} (${(rangeSize / 1024).toFixed(0)}KB of ${(code.length / 1024).toFixed(0)}KB)`)
+      srcCodeRanges = this.computeSrcCodeRanges(sanitizedSourceMap, code)
+      if (srcCodeRanges.length > 0) {
+        const totalSize = srcCodeRanges.reduce((sum, r) => sum + (r.maxOffset - r.minOffset), 0)
+        log(`  🎯 Src code ranges: ${srcCodeRanges.length} ranges (${(totalSize / 1024).toFixed(0)}KB of ${(code.length / 1024).toFixed(0)}KB)`)
       }
     }
 
@@ -1566,7 +1577,8 @@ export class CoverageConverter {
         } : null,
         coverageUrl,
         functions,
-        srcCodeRange,
+        srcCodeRange: null, // Deprecated, use srcCodeRanges
+        srcCodeRanges: srcCodeRanges.length > 0 ? srcCodeRanges : undefined,
       })
 
       const totalTime = performance.now() - startTotal
@@ -1575,7 +1587,11 @@ export class CoverageConverter {
         if (totalTime > 100) {
           log(`  ⏱ Slow entry [worker] (${totalTime.toFixed(0)}ms): ${debugUrl}`)
           if (result.timings) {
-            log(`    parse=${result.timings.parse.toFixed(0)}ms convert=${result.timings.convert.toFixed(0)}ms`)
+            let details = `parse=${result.timings.parse.toFixed(0)}ms convert=${result.timings.convert.toFixed(0)}ms`
+            if (result.filterStats) {
+              details += ` ast-filter=${result.filterStats.original}→${result.filterStats.filtered}`
+            }
+            log(`    ${details}`)
           }
         }
         return result.coverage as CoverageMapData
@@ -1804,19 +1820,24 @@ export class CoverageConverter {
   }
 
   /**
-   * Compute the byte range in the generated code where src file mappings exist.
-   * For large bundles with many external dependencies, src code is often clustered
-   * at the end of the file. By computing this range, we can skip processing
-   * AST nodes outside this range, significantly improving performance.
+   * Compute multiple contiguous byte ranges where source code exists.
    *
-   * Returns { minOffset, maxOffset } or null if no src mappings found.
+   * For large bundles with many external dependencies, src code is often
+   * scattered across multiple "islands" in the generated code (especially
+   * with webpack bundles where each user module is a separate range).
+   *
+   * By computing these precise ranges, we can skip processing AST nodes
+   * in framework/library code between user modules, significantly improving
+   * performance over a single min-max range approach.
+   *
+   * Returns array of { minOffset, maxOffset } or empty array if no mappings found.
    */
-  private computeSrcCodeRange(
+  private computeSrcCodeRanges(
     sourceMap: SourceMapData,
     code: string
-  ): { minOffset: number; maxOffset: number } | null {
+  ): Array<{ minOffset: number; maxOffset: number }> {
     if (!sourceMap.mappings || !sourceMap.sources) {
-      return null
+      return []
     }
 
     // Decode the mappings
@@ -1824,8 +1845,7 @@ export class CoverageConverter {
     try {
       decodedMappings = decode(sourceMap.mappings)
     } catch {
-      // Invalid mappings - expected for malformed source maps
-      return null
+      return []
     }
 
     // Find line offsets in the generated code
@@ -1833,42 +1853,58 @@ export class CoverageConverter {
     const lineOffsets: number[] = [0]
     let offset = 0
     for (const line of lines) {
-      offset += line.length + 1 // +1 for newline
+      offset += line.length + 1
       lineOffsets.push(offset)
     }
 
-    // Find min and max offsets for segments mapping to our src files
-    // Note: At this point, sourceMap.sources only contains our src files
-    // (it's already been sanitized)
-    let minOffset = Infinity
-    let maxOffset = -1
-
+    // Collect all byte offsets that map to source files
+    const srcOffsets: number[] = []
     for (let lineIndex = 0; lineIndex < decodedMappings.length; lineIndex++) {
       const lineSegments = decodedMappings[lineIndex]
       const lineStart = lineOffsets[lineIndex] || 0
 
       for (const segment of lineSegments) {
         if (segment.length >= 4) {
-          // This segment maps to a source file
           const columnOffset = segment[0]
           const byteOffset = lineStart + columnOffset
-
-          if (byteOffset < minOffset) minOffset = byteOffset
-          if (byteOffset > maxOffset) maxOffset = byteOffset
+          srcOffsets.push(byteOffset)
         }
       }
     }
 
-    if (minOffset === Infinity || maxOffset === -1) {
-      return null
+    if (srcOffsets.length === 0) {
+      return []
     }
 
-    // Add some padding to ensure we don't miss boundary nodes
-    // Subtract chars before and add chars after (functions can be long)
-    const paddedMin = Math.max(0, minOffset - SOURCE_MAP_PADDING_BEFORE)
-    const paddedMax = Math.min(code.length, maxOffset + SOURCE_MAP_PADDING_AFTER)
+    // Sort offsets and group into contiguous ranges
+    // Gap threshold: if two mappings are more than 1KB apart, treat as separate ranges
+    const GAP_THRESHOLD = 1000
+    srcOffsets.sort((a, b) => a - b)
 
-    return { minOffset: paddedMin, maxOffset: paddedMax }
+    const ranges: Array<{ minOffset: number; maxOffset: number }> = []
+    let rangeStart = srcOffsets[0]
+    let rangeEnd = srcOffsets[0]
+
+    for (let i = 1; i < srcOffsets.length; i++) {
+      const current = srcOffsets[i]
+      if (current - rangeEnd > GAP_THRESHOLD) {
+        // Gap detected - save current range and start new one
+        ranges.push({
+          minOffset: Math.max(0, rangeStart - SOURCE_MAP_PADDING_BEFORE),
+          maxOffset: Math.min(code.length, rangeEnd + SOURCE_MAP_PADDING_AFTER),
+        })
+        rangeStart = current
+      }
+      rangeEnd = current
+    }
+
+    // Add the last range
+    ranges.push({
+      minOffset: Math.max(0, rangeStart - SOURCE_MAP_PADDING_BEFORE),
+      maxOffset: Math.min(code.length, rangeEnd + SOURCE_MAP_PADDING_AFTER),
+    })
+
+    return ranges
   }
 
   /**
