@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -15,11 +15,13 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
+      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./playwright": {
       "types": "./dist/playwright/index.d.ts",
       "import": "./dist/playwright/index.js",
+      "require": "./dist/playwright/index.js",
       "default": "./dist/playwright/index.js"
     }
   },
