@@ -435,8 +435,10 @@ describe('CLI', () => {
       const outputDir = join(projectRoot, 'test-fixtures', 'sample-coverage', 'test-merged')
 
       // Clean up previous test output to ensure fresh merge
-      if (realExistsSync(outputDir)) {
-        rmSync(outputDir, { recursive: true })
+      try {
+        rmSync(outputDir, { recursive: true, force: true })
+      } catch {
+        // Directory may not exist, ignore
       }
 
       const output = execSync(
