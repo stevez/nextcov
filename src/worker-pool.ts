@@ -40,12 +40,19 @@ function getWorkerCount(): number {
  * Find the worker file path.
  * When running from dist/, __dirname is dist/ and ast-worker.js is there.
  * When running tests with vitest, __dirname is src/ but we need dist/ast-worker.js.
+ * When bundled with tsup into dist/playwright/, need to check parent dir.
  */
 function findWorkerPath(): string {
   // First try the same directory (works when running from dist/)
   const sameDirPath = join(__dirname, 'ast-worker.js')
   if (existsSync(sameDirPath)) {
     return sameDirPath
+  }
+
+  // Try parent directory (for bundled code in dist/playwright/)
+  const parentDirPath = join(__dirname, '..', 'ast-worker.js')
+  if (existsSync(parentDirPath)) {
+    return parentDirPath
   }
 
   // Try dist/ folder (for vitest running from src/)
