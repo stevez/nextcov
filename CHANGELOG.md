@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] - 2024-12-24
+
+### Enhanced
+
+- **`collectServer: false` now skips `startServerCoverage()` entirely** - Previously only affected `finalizeCoverage()`
+  - No CDP connection attempts are made when server coverage is disabled
+  - Safe for static sites, SPAs, or deployed environments
+  - No `NODE_V8_COVERAGE`, `--inspect`, or `global-setup.ts` required
+
 ## [0.9.2] - 2024-12-22
 
 ### Fixed

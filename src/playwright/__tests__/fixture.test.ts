@@ -56,6 +56,20 @@ class MockCoverageProcessor {
 }
 
 // Mock dependencies
+// Mock ClientCoverageCollector - track instances and configurable return values
+let mockClientCollectorReadReturn: any[] = []
+const mockClientCollectorInstances: any[] = []
+
+class MockClientCoverageCollector {
+  readAllClientCoverage = vi.fn().mockImplementation(() => Promise.resolve(mockClientCollectorReadReturn))
+  saveClientCoverage = vi.fn().mockResolvedValue(undefined)
+  cleanCoverageDir = vi.fn().mockResolvedValue(undefined)
+
+  constructor() {
+    mockClientCollectorInstances.push(this)
+  }
+}
+
 vi.mock('../../collector/index.js', () => ({
   saveServerCoverage: vi.fn().mockResolvedValue(undefined),
   readAllClientCoverage: vi.fn().mockResolvedValue([]),
@@ -66,11 +80,7 @@ vi.mock('../../collector/index.js', () => ({
   connectToCDP: vi.fn(),
   collectServerCoverage: vi.fn(),
   createDevModeServerCollector: vi.fn(),
-  ClientCoverageCollector: class MockClientCoverageCollector {
-    readAllClientCoverage = vi.fn().mockResolvedValue([])
-    saveClientCoverage = vi.fn().mockResolvedValue(undefined)
-    cleanCoverageDir = vi.fn().mockResolvedValue(undefined)
-  },
+  ClientCoverageCollector: MockClientCoverageCollector,
   V8ServerCoverageCollector: MockV8ServerCoverageCollector,
   DevModeServerCollector: MockDevModeServerCollector,
 }))
@@ -90,6 +100,9 @@ describe('playwright integration', () => {
     mockDevModeCollectorCollectReturn = []
     mockDevModeCollectorWebpackReady = true
     mockDevModeCollectorInstances.length = 0
+    // Reset client collector mocks
+    mockClientCollectorReadReturn = []
+    mockClientCollectorInstances.length = 0
     // Reset processor mocks
     mockProcessorThrows = false
     mockProcessorError = new Error('Processing failed')
@@ -176,37 +189,6 @@ describe('playwright integration', () => {
       await finalizeCoverage({ cleanup: false })
 
       expect(cleanCoverageDir).not.toHaveBeenCalled()
-    })
-
-    it('should skip server collection when disabled', async () => {
-      const { finalizeCoverage } = await import('../index.js')
-      const { readAllClientCoverage } = await import('../../collector/index.js')
-
-      vi.mocked(readAllClientCoverage).mockResolvedValue([
-        { url: 'client.js', source: 'code', rawScriptCoverage: [] } as any,
-      ])
-
-      // Clear instances before this test
-      mockV8CollectorInstances.length = 0
-
-      await finalizeCoverage({ collectServer: false })
-
-      // V8ServerCoverageCollector should not be instantiated when server collection is disabled
-      expect(mockV8CollectorInstances.length).toBe(0)
-    })
-
-    it('should skip client collection when disabled', async () => {
-      const { finalizeCoverage } = await import('../index.js')
-      const { readAllClientCoverage } = await import('../../collector/index.js')
-
-      // V8 collector returns server coverage
-      mockV8CollectorCollectReturn = [{ url: 'server.js', functions: [] }]
-
-      vi.mocked(readAllClientCoverage).mockClear()
-
-      await finalizeCoverage({ collectClient: false })
-
-      expect(readAllClientCoverage).not.toHaveBeenCalled()
     })
 
     it('should save server coverage via V8 collector', async () => {
@@ -335,7 +317,7 @@ describe('playwright integration', () => {
 
       await finalizeCoverage()
 
-      // Should use defaults - collectServer and collectClient are true by default
+      // Should use defaults - both server and client coverage are collected
       // V8ServerCoverageCollector should be instantiated (V8 mode is now default)
       expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
       // Client collection uses ClientCoverageCollector instance (mocked via class mock)
@@ -544,6 +526,123 @@ describe('playwright integration', () => {
 
       // Should have created V8ServerCoverageCollector (production mode)
       expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('collectServer disabled mode', () => {
+    it('should skip server setup in startServerCoverage when collectServer is false', async () => {
+      const { startServerCoverage } = await import('../fixture.js')
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      // Clear instances before test
+      mockDevModeCollectorInstances.length = 0
+
+      const result = await startServerCoverage({ collectServer: false })
+
+      expect(result).toBe(false)
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Server coverage disabled'))
+      // Should not attempt any CDP connection
+      expect(mockDevModeCollectorInstances.length).toBe(0)
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should skip server coverage collection in finalizeCoverage when collectServer is false', async () => {
+      const { finalizeCoverage } = await import('../index.js')
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      // Clear instances before test
+      mockV8CollectorInstances.length = 0
+      mockDevModeCollectorInstances.length = 0
+
+      // Mock client coverage return value
+      mockClientCollectorReadReturn = [
+        { url: 'http://localhost:3000/_next/static/chunks/app.js', functions: [] },
+      ]
+
+      await finalizeCoverage({ collectServer: false })
+
+      // Should not create any server collectors
+      expect(mockV8CollectorInstances.length).toBe(0)
+      expect(mockDevModeCollectorInstances.length).toBe(0)
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should skip client coverage collection when collectClient is false', async () => {
+      const { finalizeCoverage } = await import('../index.js')
+
+      // Mock server coverage
+      mockV8CollectorCollectReturn = [{ url: 'server.js', functions: [] }]
+
+      // Mock client coverage - this should be ignored
+      mockClientCollectorReadReturn = [
+        { url: 'http://localhost:3000/_next/static/chunks/app.js', functions: [] },
+      ]
+
+      // Clear client collector instances
+      mockClientCollectorInstances.length = 0
+
+      await finalizeCoverage({ collectClient: false })
+
+      // Should have processed server coverage (V8ServerCoverageCollector instantiated)
+      expect(mockV8CollectorInstances.length).toBeGreaterThan(0)
+    })
+
+    it('should return null when no client coverage with collectServer false', async () => {
+      const { finalizeCoverage } = await import('../index.js')
+      const { log } = await import('../../logger.js')
+
+      // No client coverage (default mock returns empty array)
+      mockClientCollectorReadReturn = []
+
+      const result = await finalizeCoverage({ collectServer: false })
+
+      expect(result).toBeNull()
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('No coverage to process'))
+    })
+
+    it('should handle errors with collectServer false and still cleanup', async () => {
+      const { finalizeCoverage } = await import('../index.js')
+
+      // Mock client coverage return value
+      mockClientCollectorReadReturn = [
+        { url: 'test.js', functions: [] },
+      ]
+
+      // Configure processor to throw
+      mockProcessorThrows = true
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const result = await finalizeCoverage({ collectServer: false, cleanup: true })
+
+      expect(result).toBeNull()
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error processing coverage'),
+        expect.any(Error)
+      )
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should work without calling startServerCoverage when collectServer is false', async () => {
+      const { finalizeCoverage, resetCoverageState } = await import('../fixture.js')
+
+      // Reset state to simulate fresh start without startServerCoverage
+      resetCoverageState()
+
+      // Mock client coverage return value
+      mockClientCollectorReadReturn = [
+        { url: 'http://localhost:3000/_next/static/chunks/app.js', functions: [] },
+      ]
+
+      // Should work without startServerCoverage being called
+      const result = await finalizeCoverage({ collectServer: false })
+
+      expect(result).not.toBeNull()
     })
   })
 })

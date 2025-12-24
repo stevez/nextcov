@@ -115,6 +115,23 @@ describe('config', () => {
 
       expect(config.reporters).toEqual(['json', 'text'])
     })
+
+    it('should allow disabling server collection', () => {
+      const config = resolveNextcovConfig({
+        collectServer: false,
+      })
+      expect(config.collectServer).toBe(false)
+      expect(config.collectClient).toBe(true)
+    })
+
+    it('should allow disabling client collection', () => {
+      const config = resolveNextcovConfig({
+        collectClient: false,
+      })
+      expect(config.collectServer).toBe(true)
+      expect(config.collectClient).toBe(false)
+    })
+
   })
 
   describe('normalizePath', () => {

@@ -70,10 +70,18 @@ export interface NextcovConfig {
    */
   v8CoverageDir?: string
 
-  /** Whether to collect server-side coverage (default: true) */
+  /**
+   * Collect server-side coverage (default: true).
+   * When false, startServerCoverage() becomes a no-op and finalizeCoverage()
+   * skips server coverage collection. Use this for static sites, SPAs, or
+   * deployed environments where no Node.js server with inspector is available.
+   */
   collectServer?: boolean
 
-  /** Whether to collect client-side coverage (default: true) */
+  /**
+   * Collect client-side coverage (default: true).
+   * When false, client coverage from Playwright is not collected.
+   */
   collectClient?: boolean
 
   /** Source files root relative to project root (default: './src') */
