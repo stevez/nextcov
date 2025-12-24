@@ -423,7 +423,7 @@ describe('CLI', () => {
       const { execSync } = await import('child_process')
       const { fileURLToPath } = await import('url')
       const { dirname, join, resolve } = await import('path')
-      const { readFileSync, rmSync, existsSync: realExistsSync } = await import('fs')
+      const { readFileSync, rmSync } = await import('fs')
 
       const currentFile = fileURLToPath(import.meta.url)
       const projectRoot = resolve(dirname(currentFile), '..', '..')

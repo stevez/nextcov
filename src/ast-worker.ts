@@ -66,7 +66,7 @@ export async function processEntry(input: WorkerInput): Promise<WorkerOutput> {
   try {
     // Parse AST
     const startParse = performance.now()
-    let ast = await parseAstAsync(input.code)
+    const ast = await parseAstAsync(input.code)
     timings.parse = performance.now() - startParse
 
     // Build the list of code ranges to check against
