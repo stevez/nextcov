@@ -44,6 +44,7 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 
 - **Next.js focused** - Built specifically for Next.js applications
 - **Client + Server coverage** - Collects coverage from both browser and Node.js server
+- **Client-only mode** - Skip server coverage for static sites, SPAs, or deployed environments
 - **Dev mode support** - Works with `next dev` (no build required), auto-detected
 - **Production mode support** - Works with `next build && next start` using external source maps
 - **Auto-detection** - Automatically detects dev vs production mode, no configuration needed
@@ -343,6 +344,100 @@ npx playwright test
 
 Both modes produce identical Istanbul-compatible output that can be merged with Vitest coverage.
 
+## Client-Only Mode
+
+For scenarios where you don't need server-side coverage, use `collectServer: false`. This is useful for:
+
+- **Static sites** - Next.js static exports (`next export` or `output: 'export'`)
+- **SPAs** - Single page applications with external/serverless backends
+- **Deployed environments** - Testing against staging or production URLs
+- **Simpler setup** - No `NODE_V8_COVERAGE` or `--inspect` flags needed
+
+### Configuration
+
+Disable server coverage in your `playwright.config.ts`:
+
+```typescript
+export const nextcov: NextcovConfig = {
+  collectServer: false,  // Skip all server coverage collection
+  outputDir: 'coverage/e2e',
+  reporters: ['html', 'lcov', 'json', 'text-summary'],
+}
+```
+
+### Simplified Setup
+
+With `collectServer: false`, you don't need a `global-setup.ts` file at all. The setup is simpler:
+
+**1. Coverage fixture** (`e2e/fixtures.ts`) - same as before:
+```typescript
+import { test as base, expect } from '@playwright/test'
+import { collectClientCoverage } from 'nextcov/playwright'
+
+export const test = base.extend({
+  coverage: [
+    async ({ page }, use, testInfo) => {
+      await collectClientCoverage(page, testInfo, use)
+    },
+    { scope: 'test', auto: true },
+  ],
+})
+
+export { expect }
+```
+
+**2. Global teardown** (`e2e/global-teardown.ts`):
+```typescript
+import { finalizeCoverage, loadNextcovConfig } from 'nextcov/playwright'
+
+export default async function globalTeardown() {
+  const config = await loadNextcovConfig()
+  await finalizeCoverage(config)  // Only processes client coverage
+}
+```
+
+**3. Run tests** - no special server flags needed:
+```bash
+# Just start your server normally and run tests
+npm start &
+npx playwright test
+
+# Or test against a deployed environment
+npx playwright test --config=playwright.staging.config.ts
+```
+
+### When to Use Client-Only Mode
+
+| Scenario | Use `collectServer: false`? |
+|----------|------------------|
+| Testing Next.js with `next dev` or `next start` | No - use full mode for server coverage |
+| Testing static export (`next export`) | Yes |
+| Testing against deployed staging/production | Yes |
+| Testing SPA with external API | Yes |
+| Quick local testing without inspector setup | Yes |
+
+### Behavior
+
+When `collectServer: false`:
+- `startServerCoverage()` becomes a no-op (safe to call, does nothing)
+- `finalizeCoverage()` only processes client-side coverage from Playwright
+- No CDP connection attempts are made
+
+### Server-Only Mode
+
+For scenarios where you only want server coverage (e.g., API testing without browser), use `collectClient: false`:
+
+```typescript
+export const nextcov: NextcovConfig = {
+  collectClient: false,  // Skip client coverage collection
+  outputDir: 'coverage/e2e',
+}
+```
+
+When `collectClient: false`:
+- `collectClientCoverage()` still needs to be called (for test fixtures), but collected data is ignored during finalization
+- `finalizeCoverage()` only processes server-side coverage
+
 ## Merging with Vitest Coverage
 
 The main power of nextcov is combining E2E coverage with unit test coverage.
@@ -505,8 +600,8 @@ Finalizes coverage collection and generates reports. Call in globalTeardown.
 | `include` | `string[]` | `['src/**/*']` | Glob patterns to include |
 | `exclude` | `string[]` | `['node_modules/**']` | Glob patterns to exclude |
 | `reporters` | `string[]` | `['html', 'lcov', 'json']` | Report formats |
-| `collectServer` | `boolean` | `true` | Collect server-side coverage |
-| `collectClient` | `boolean` | `true` | Collect client-side coverage |
+| `collectServer` | `boolean` | `true` | Collect server-side coverage (set `false` for static sites, SPAs) |
+| `collectClient` | `boolean` | `true` | Collect client-side coverage from Playwright |
 | `cleanup` | `boolean` | `true` | Clean up temp files |
 | `cdpPort` | `number` | `9230` | CDP port for triggering v8.takeCoverage() |
 | `log` | `boolean` | `false` | Enable verbose logging output |

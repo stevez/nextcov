@@ -74,14 +74,21 @@ export interface PlaywrightCoverageOptions {
   reporters?: ReporterType[]
   /** Whether to clean up cache after processing (default: true) */
   cleanup?: boolean
-  /** Whether to collect server coverage (default: true) */
-  collectServer?: boolean
-  /** Whether to collect client coverage (default: true) */
-  collectClient?: boolean
   /** Dev mode options (auto-detected by default) */
   devMode?: ResolvedDevModeOptions
   /** CDP port for triggering v8.takeCoverage() (default: 9230) */
   cdpPort?: number
+  /**
+   * Collect server-side coverage (default: true).
+   * When false, startServerCoverage() becomes a no-op and finalizeCoverage()
+   * skips server coverage collection.
+   */
+  collectServer?: boolean
+  /**
+   * Collect client-side coverage (default: true).
+   * When false, client coverage from Playwright is not collected.
+   */
+  collectClient?: boolean
 }
 
 const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
@@ -94,10 +101,10 @@ const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
   exclude: DEFAULT_EXCLUDE_PATTERNS,
   reporters: DEFAULT_REPORTERS,
   cleanup: true,
-  collectServer: DEFAULT_NEXTCOV_CONFIG.collectServer,
-  collectClient: DEFAULT_NEXTCOV_CONFIG.collectClient,
   devMode: DEFAULT_NEXTCOV_CONFIG.devMode,
   cdpPort: DEFAULT_NEXTCOV_CONFIG.cdpPort,
+  collectServer: DEFAULT_NEXTCOV_CONFIG.collectServer,
+  collectClient: DEFAULT_NEXTCOV_CONFIG.collectClient,
 }
 
 /**
@@ -135,6 +142,13 @@ export async function startServerCoverage(
   // Initialize logging and timing from config
   setLogging(resolved.log)
   setTiming(resolved.timing)
+
+  // Skip server coverage if collectServer is false
+  if (!resolved.collectServer) {
+    console.log('📊 Server coverage disabled: skipping server coverage setup')
+    devModeCollector = null
+    return false
+  }
 
   // Auto-detect dev mode vs production mode:
   // - Dev mode: next dev --inspect=9230 spawns worker on port 9231 (inspect port + 1)
@@ -341,17 +355,11 @@ async function processCoverageAndGenerateReports(
 async function finalizeDevModeCoverage(
   opts: Required<PlaywrightCoverageOptions>
 ): Promise<CoverageResult | null> {
-  // Step 1: Collect server coverage from dev mode collector
-  let serverCoverage: DevServerCoverageEntry[] = []
-  if (opts.collectServer) {
-    serverCoverage = await collectDevModeServerCoverage()
-  }
+  // Step 1: Collect server coverage from dev mode collector (if enabled)
+  const serverCoverage = opts.collectServer ? await collectDevModeServerCoverage() : []
 
-  // Step 2: Read client coverage from cache
-  let clientCoverage: PlaywrightCoverageEntry[] = []
-  if (opts.collectClient) {
-    clientCoverage = await readClientCoverageFromCache(opts)
-  }
+  // Step 2: Read client coverage from cache (if enabled)
+  const clientCoverage = opts.collectClient ? await readClientCoverageFromCache(opts) : []
 
   // Combine coverage (client first, then server)
   const allCoverage: Array<PlaywrightCoverageEntry | DevServerCoverageEntry> = [
@@ -391,10 +399,9 @@ async function finalizeDevModeCoverage(
 async function finalizeProductionCoverage(
   opts: Required<PlaywrightCoverageOptions>
 ): Promise<CoverageResult | null> {
-  // Step 1: Collect server coverage via CDP trigger
+  // Step 1: Collect server coverage via CDP trigger (if enabled)
   let serverCoverage: V8ServerCoverageEntry[] = []
   let v8Collector: V8ServerCoverageCollector | null = null
-
   if (opts.collectServer) {
     const result = await collectProductionServerCoverage({
       cdpPort: opts.cdpPort,
@@ -406,11 +413,8 @@ async function finalizeProductionCoverage(
     v8Collector = result.collector
   }
 
-  // Step 2: Read client coverage from cache
-  let clientCoverage: PlaywrightCoverageEntry[] = []
-  if (opts.collectClient) {
-    clientCoverage = await readClientCoverageFromCache(opts)
-  }
+  // Step 2: Read client coverage from cache (if enabled)
+  const clientCoverage = opts.collectClient ? await readClientCoverageFromCache(opts) : []
 
   // Combine coverage (client first, then server)
   const allCoverage: Array<PlaywrightCoverageEntry | V8ServerCoverageEntry> = [

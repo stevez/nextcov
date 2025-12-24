@@ -25,6 +25,7 @@ npm-debug.log*
 # Test artifacts
 test-results/
 playwright-report/
+test-fixtures/sample-coverage/test-merged/
 
 # Misc
 *.tgz
