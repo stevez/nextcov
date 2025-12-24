@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2024-12-24
+
+### Added
+
+- **`nextcov init` command** - Interactive scaffolding for nextcov setup
+  - Creates `global-setup.ts`, `global-teardown.ts`, and `test-fixtures.ts`
+  - Modifies `playwright.config.ts` with nextcov configuration
+  - Adds npm scripts (`dev:e2e`, `e2e:clean`, `coverage:merge`) to `package.json`
+  - Modifies `next.config.ts` with E2E mode settings for source maps
+  - Options: `--client-only`, `--e2e-dir`, `--js`, `--force`, `-y` (skip prompts)
+
+- **Coverage mode selection in `nextcov init`** - Choose between Full and Client-only modes
+  - **Full mode**: Creates `global-setup.ts` with server coverage, `dev:e2e` uses `--inspect`
+  - **Client-only mode**: No `global-setup.ts`, simpler `dev:e2e` script, `collectServer: false` in config
+
 ## [0.9.4] - 2024-12-24
 
 ### Added

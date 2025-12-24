@@ -3,6 +3,7 @@
  * nextcov CLI
  *
  * Commands:
+ *   init  - Initialize nextcov in your project
  *   merge - Merge multiple coverage reports into one
  */
 
@@ -17,12 +18,14 @@ Usage:
   npx nextcov <command> [options]
 
 Commands:
+  init        Initialize nextcov in your project
   merge       Merge multiple coverage reports into one
 
 Options:
   --help      Show this help message
 
 Examples:
+  npx nextcov init
   npx nextcov merge coverage/unit coverage/integration
   npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/all
 `
@@ -56,7 +59,9 @@ async function main(): Promise<number> {
 
   const command = args[0]
 
-  if (command === 'merge') {
+  if (command === 'init') {
+    return await runInit(args.slice(1))
+  } else if (command === 'merge') {
     return await runMerge(args.slice(1))
   } else {
     console.error(`Unknown command: ${command}`)
@@ -219,6 +224,30 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
+}
+
+async function runInit(args: string[]): Promise<number> {
+  // Dynamic import to avoid loading init dependencies until needed
+  const { parseInitArgs, executeInit, INIT_HELP } = await import('./init.js')
+
+  const result = parseInitArgs(args)
+
+  if (result.showHelp) {
+    console.log(INIT_HELP)
+    if (result.error) {
+      console.error(result.error)
+      return 1
+    }
+    return 0
+  }
+
+  if (result.error) {
+    console.error(result.error)
+    return 1
+  }
+
+  await executeInit(result.options!)
+  return 0
 }
 
 async function runMerge(args: string[]): Promise<number> {

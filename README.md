@@ -80,6 +80,44 @@ npm install nextcov --save-dev
 npm install @playwright/test --save-dev
 ```
 
+## Quick Setup with `nextcov init`
+
+The fastest way to get started is with the `init` command:
+
+```bash
+npx nextcov init
+```
+
+This interactive command will:
+- Create `e2e/global-setup.ts` - Start server coverage collection
+- Create `e2e/global-teardown.ts` - Finalize and generate reports
+- Create `e2e/fixtures/test-fixtures.ts` - Coverage collection fixture
+- Modify `playwright.config.ts` - Add nextcov configuration
+- Modify `package.json` - Add npm scripts (`dev:e2e`, `e2e:clean`, `coverage:merge`)
+- Modify `next.config.ts` - Add E2E mode settings for source maps
+
+### Options
+
+```bash
+npx nextcov init                 # Interactive mode
+npx nextcov init -y              # Use defaults, no prompts
+npx nextcov init --client-only   # Client-only mode (no server coverage)
+npx nextcov init --e2e-dir tests # Custom e2e directory
+npx nextcov init --js            # Use JavaScript instead of TypeScript
+npx nextcov init --force         # Overwrite existing files
+```
+
+### Coverage Mode
+
+During interactive setup, you'll be asked to choose a coverage mode:
+
+| Mode | Description | Use When |
+|------|-------------|----------|
+| **Full (client + server)** | Collects both browser and Node.js coverage | Testing with `next dev` or `next start` |
+| **Client-only** | Only browser coverage, simpler setup | Static sites, SPAs, deployed environments |
+
+After running `init`, follow the next steps shown to start collecting coverage.
+
 ## Example Projects
 
 ### nextcov-example
