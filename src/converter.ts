@@ -9,9 +9,22 @@ import { existsSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { parse as babelParse } from '@babel/parser'
 import { parseAstAsync } from 'vite'
-import astV8ToIstanbul from 'ast-v8-to-istanbul'
+import _astV8ToIstanbul from 'ast-v8-to-istanbul'
 import libCoverage from 'istanbul-lib-coverage'
 import libSourceMaps from 'istanbul-lib-source-maps'
+
+// Handle ESM/CJS interop for default exports
+// When tsup bundles for CJS, ESM default exports get wrapped as { default: fn }
+// This helper unwraps it if needed, returning the function directly
+function unwrapDefault<T>(mod: T): T {
+  const maybeWrapped = mod as { default?: T }
+  if (maybeWrapped.default && typeof maybeWrapped.default === 'function') {
+    return maybeWrapped.default
+  }
+  return mod
+}
+
+const astV8ToIstanbul = unwrapDefault(_astV8ToIstanbul)
 import { decode, encode, type SourceMapMappings } from '@jridgewell/sourcemap-codec'
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
 import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, SourceMapData, SourceFilter } from './types.js'

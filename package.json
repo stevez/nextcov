@@ -1,11 +1,11 @@
 {
   "name": "nextcov",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
@@ -15,14 +15,12 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "default": "./dist/index.js"
+      "require": "./dist/index.cjs"
     },
     "./playwright": {
       "types": "./dist/playwright/index.d.ts",
       "import": "./dist/playwright/index.js",
-      "require": "./dist/playwright/index.js",
-      "default": "./dist/playwright/index.js"
+      "require": "./dist/playwright/index.cjs"
     }
   },
   "files": [
@@ -31,7 +29,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -82,6 +80,7 @@
     "@vitest/coverage-v8": "^4.0.15",
     "eslint": "^9.39.1",
     "rimraf": "^6.0.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.49.0",
     "vitest": "^4.0.15"

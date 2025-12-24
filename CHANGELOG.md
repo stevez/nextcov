@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2024-12-24
+
+### Added
+
+- **Dual ESM/CJS build** - Package now exports both ESM and CommonJS formats
+  - ESM: `dist/index.js`, `dist/playwright/index.js`
+  - CJS: `dist/index.cjs`, `dist/playwright/index.cjs`
+  - Enables compatibility with tools that require CJS (e.g., Playwright's TypeScript loader when using symlinks via yalc/npm link)
+  - Uses tsup bundler for reliable dual-format output
+
+### Changed
+
+- **Build system migrated to tsup** - Replaced `tsc` with `tsup` for bundling
+  - Adds `shims: true` for `import.meta.url` compatibility in CJS
+  - Adds `cjsInterop: true` for proper default export handling
+  - Worker file (`ast-worker.js`) built as separate ESM entry
+
+### Fixed
+
+- **Worker path resolution for bundled code** - `findWorkerPath()` now checks parent directory for `ast-worker.js`
+  - Fixes worker loading when code is bundled into `dist/playwright/` subdirectory
+- **ESM/CJS interop for ast-v8-to-istanbul** - Added runtime detection to unwrap default export in CJS context
+  - Fixes `(0, import_ast_v8_to_istanbul.default) is not a function` error in CJS mode
+
 ## [0.9.3] - 2024-12-24
 
 ### Enhanced
