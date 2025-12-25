@@ -7,6 +7,7 @@
 
 export {
   finalizeCoverage,
+  initCoverage,
   startServerCoverage,
   collectClientCoverage,
   resetCoverageState,

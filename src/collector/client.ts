@@ -8,7 +8,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
-import { isNextChunksUrl } from '../constants.js'
+import { isNextChunksUrl, isViteSourceUrl } from '../constants.js'
 import { log, createTimer } from '../logger.js'
 
 export interface PlaywrightCoverageEntry {
@@ -122,7 +122,7 @@ export class ClientCoverageCollector {
   }
 
   /**
-   * Filter coverage to Next.js app code only
+   * Filter coverage to app code only (Next.js or Vite)
    */
   filterAppCoverage(coverage: PlaywrightCoverageEntry[]): PlaywrightCoverageEntry[] {
     return coverage.filter((entry) => {
@@ -139,6 +139,11 @@ export class ClientCoverageCollector {
         // Exclude vendor chunks (numeric prefixes like 878-xxx.js)
         const filename = normalizedUrl.split('/').pop() || ''
         if (/^\d+/.test(filename)) return false
+        return true
+      }
+
+      // Include Vite source files
+      if (isViteSourceUrl(normalizedUrl)) {
         return true
       }
 

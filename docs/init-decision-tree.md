@@ -67,10 +67,10 @@ flowchart TB
     end
 
     subgraph ClientOnly["Client-Only Mode (collectServer: false)"]
-        C1[/"⊘ Skip global-setup.ts"/]
+        C1[/"✓ Create global-setup.ts<br/>initCoverage()"/]
         C2[/"✓ Create global-teardown.ts"/]
         C3[/"✓ Create test-fixtures.ts"/]
-        C4[/"✓ Modify playwright.config<br/>+ globalTeardown only<br/>+ collectServer: false"/]
+        C4[/"✓ Modify playwright.config<br/>+ globalSetup + globalTeardown<br/>+ collectServer: false"/]
         C5[/"✓ Modify package.json<br/>dev:e2e = E2E_MODE=true"/]
         C6[/"✓ Modify next.config<br/>+ E2E_MODE settings"/]
 
@@ -127,7 +127,7 @@ flowchart TB
 
     subgraph ClientOnly["Client-Only Mode"]
         direction TB
-        CA[/"❌ No global-setup.ts"/]
+        CA[/"global-setup.ts<br/>initCoverage()"/]
         CB[/"global-teardown.ts<br/>finalizeCoverage()"/]
         CC[/"test-fixtures.ts<br/>collectClientCoverage()"/]
         CD["dev:e2e script:<br/><code>E2E_MODE=true</code>"]
@@ -165,8 +165,8 @@ flowchart TB
 
 | Aspect | Full Mode | Client-only Mode |
 |--------|-----------|------------------|
-| **Files created** | global-setup.ts, global-teardown.ts, test-fixtures.ts | global-teardown.ts, test-fixtures.ts |
-| **playwright.config** | `globalSetup` + `globalTeardown` | `globalTeardown` only |
+| **Files created** | global-setup.ts, global-teardown.ts, test-fixtures.ts | global-setup.ts, global-teardown.ts, test-fixtures.ts |
+| **playwright.config** | `globalSetup` + `globalTeardown` | `globalSetup` + `globalTeardown` |
 | **nextcov config** | Default (collectServer: true) | `collectServer: false` |
 | **dev:e2e script** | `NODE_OPTIONS=--inspect=9230` | `E2E_MODE=true` |
 | **Server coverage** | ✓ Collected via CDP | ✗ Skipped |
@@ -208,9 +208,11 @@ npx nextcov init --client-only -y
 ```
 
 Creates simplified setup with:
+- `e2e/global-setup.ts` (with `initCoverage()`)
 - `e2e/global-teardown.ts`
 - `e2e/fixtures/test-fixtures.ts`
 - No `--inspect` flag needed
+- `collectServer: false` in config
 
 ### 3. Custom Directory
 

@@ -1799,7 +1799,10 @@ export class CoverageConverter {
 
     // Check if source has src/ in its path
     // For webpack URLs with proper paths like webpack://_N_E/./src/app/page.tsx, the normalized version should have src/
-    if (!normalizedSource.includes('src/') && !source.includes('/src/') && !source.includes('\\src\\')) {
+    // However, Vite source maps use simple relative filenames (e.g., "App.tsx") without the full path
+    // So we also accept sources that are just filenames with valid extensions
+    const isViteStyleSource = /^[^/\\]+\.(tsx?|jsx?|vue|svelte)$/.test(normalizedSource)
+    if (!isViteStyleSource && !normalizedSource.includes('src/') && !source.includes('/src/') && !source.includes('\\src\\')) {
       return `no src/ in path (normalized=${normalizedSource.substring(0, 40)})`
     }
 

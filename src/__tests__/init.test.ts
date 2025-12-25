@@ -282,7 +282,7 @@ export default defineConfig({})
         )
 
         expect(globalSetupCall).toBeDefined()
-        expect(globalSetupCall![1]).toContain('startServerCoverage')
+        expect(globalSetupCall![1]).toContain('initCoverage')
         expect(globalSetupCall![1]).toContain('loadNextcovConfig')
         expect(globalSetupCall![1]).toContain("playwright.config.ts')")
       })
@@ -656,8 +656,11 @@ export default defineConfig({})
         expect(pkgCall).toBeDefined()
         const pkgContent = JSON.parse(pkgCall![1] as string)
         expect(pkgContent.scripts['dev:e2e']).toBeDefined()
-        expect(pkgContent.scripts['e2e:clean']).toBeDefined()
+        expect(pkgContent.scripts['build:e2e']).toBeDefined()
+        expect(pkgContent.scripts['start:e2e']).toBeDefined()
+        expect(pkgContent.scripts['test:e2e']).toBeDefined()
         expect(pkgContent.scripts['coverage:merge']).toBeDefined()
+        expect(pkgContent.devDependencies['start-server-and-test']).toBeDefined()
       })
 
       it('should add browserslist to package.json', async () => {
@@ -719,8 +722,16 @@ export default defineConfig({})
               name: 'test-project',
               scripts: {
                 'dev:e2e': 'existing',
-                'e2e:clean': 'existing',
+                'build:e2e': 'existing',
+                'start:local': 'existing',
+                'start:e2e': 'existing',
+                'test:e2e': 'existing',
                 'coverage:merge': 'existing',
+              },
+              devDependencies: {
+                'cross-env': '^7.0.0',
+                'start-server-and-test': '^2.0.0',
+                'concurrently': '^8.0.0',
               },
               browserslist: ['chrome 100'],
             })
@@ -1390,7 +1401,7 @@ export default defineConfig({})
     })
 
     describe('client-only mode (collectServer: false)', () => {
-      it('should NOT create global-setup.ts in client-only mode', async () => {
+      it('should create global-setup.ts in client-only mode (needed for initCoverage)', async () => {
         vi.mocked(existsSync).mockImplementation((path) => {
           const pathStr = String(path)
           if (pathStr.includes('playwright.config.ts')) return true
@@ -1418,8 +1429,9 @@ export default defineConfig({})
           (call) => typeof call[0] === 'string' && call[0].includes('global-setup.ts')
         )
 
-        // global-setup.ts should NOT be created
-        expect(globalSetupCall).toBeUndefined()
+        // global-setup.ts IS created for client-only mode (initCoverage is needed for both modes)
+        expect(globalSetupCall).toBeDefined()
+        expect(globalSetupCall![1]).toContain('initCoverage')
       })
 
       it('should still create global-teardown.ts in client-only mode', async () => {
@@ -1490,7 +1502,7 @@ export default defineConfig({
         expect(configCall![1]).toContain('Client-only mode')
       })
 
-      it('should NOT add globalSetup to playwright.config in client-only mode', async () => {
+      it('should add both globalSetup and globalTeardown to playwright.config in client-only mode', async () => {
         vi.mocked(existsSync).mockImplementation((path) => {
           const pathStr = String(path)
           if (pathStr.includes('playwright.config.ts')) return true
@@ -1520,12 +1532,14 @@ export default defineConfig({
           (call) => typeof call[0] === 'string' && call[0].includes('playwright.config.ts')
         )
 
+        // Both globalSetup and globalTeardown are needed for client-only mode
+        // globalSetup runs initCoverage, globalTeardown runs finalizeCoverage
         expect(configCall).toBeDefined()
-        expect(configCall![1]).not.toContain('globalSetup:')
+        expect(configCall![1]).toContain('globalSetup:')
         expect(configCall![1]).toContain('globalTeardown:')
       })
 
-      it('should add simpler dev:e2e script without --inspect in client-only mode', async () => {
+      it('should add simpler dev:e2e script without --inspect in client-only mode (Next.js project)', async () => {
         vi.mocked(existsSync).mockImplementation((path) => {
           const pathStr = String(path)
           if (pathStr.includes('playwright.config.ts')) return true
@@ -1568,6 +1582,57 @@ export default defineConfig({})
         expect(pkgContent.scripts['dev:e2e']).toBeDefined()
         expect(pkgContent.scripts['dev:e2e']).not.toContain('--inspect')
         expect(pkgContent.scripts['dev:e2e']).toContain('E2E_MODE=true')
+      })
+
+      it('should not add e2e scripts in client-only mode without Next.js', async () => {
+        vi.mocked(existsSync).mockImplementation((path) => {
+          const pathStr = String(path)
+          if (pathStr.includes('playwright.config.ts')) return true
+          // No next.config - not a Next.js project
+          if (pathStr.includes('next.config')) return false
+          if (pathStr.includes('package.json')) return true
+          return false
+        })
+        vi.mocked(readFileSync).mockImplementation((path) => {
+          const pathStr = String(path)
+          if (pathStr.includes('package.json')) {
+            return JSON.stringify({
+              name: 'test-project',
+              scripts: {},
+            })
+          }
+          return `
+import { defineConfig } from '@playwright/test'
+export default defineConfig({})
+`
+        })
+
+        const options: InitOptions = {
+          e2eDir: 'e2e',
+          force: true,
+          typescript: true,
+          interactive: false,
+          mergeCoverage: true,
+          collectServer: false, // Client-only mode
+        }
+
+        await executeInit(options)
+
+        const calls = vi.mocked(writeFileSync).mock.calls
+        const pkgCall = calls.find(
+          (call) => typeof call[0] === 'string' && call[0].includes('package.json')
+        )
+
+        expect(pkgCall).toBeDefined()
+        const pkgContent = JSON.parse(pkgCall![1] as string)
+        // No Next.js scripts should be added
+        expect(pkgContent.scripts['dev:e2e']).toBeUndefined()
+        expect(pkgContent.scripts['build:e2e']).toBeUndefined()
+        expect(pkgContent.scripts['start:local']).toBeUndefined()
+        expect(pkgContent.scripts['start:e2e']).toBeUndefined()
+        expect(pkgContent.scripts['test:e2e']).toBeUndefined()
+        // But coverage:merge should still be added (mergeCoverage is true)
+        expect(pkgContent.scripts['coverage:merge']).toBeDefined()
       })
     })
   })

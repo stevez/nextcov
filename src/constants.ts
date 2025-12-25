@@ -235,6 +235,30 @@ export function isNextChunksUrl(url: string): boolean {
 }
 
 /**
+ * Check if a URL is a Vite app source file.
+ * Vite serves source files directly from paths like /src/ or /@fs/
+ * and transforms them on-the-fly.
+ */
+export function isViteSourceUrl(url: string): boolean {
+  // Vite serves source files from /src/ path
+  if (url.includes('/src/')) return true
+  // Vite's file system access for dependencies
+  if (url.includes('/@fs/')) return true
+  // Vite's internal modules (we typically exclude these)
+  if (url.includes('/@vite/')) return false
+  // Vite's HMR client (exclude)
+  if (url.includes('/@react-refresh')) return false
+  return false
+}
+
+/**
+ * Check if a URL is an app source file (Next.js or Vite)
+ */
+export function isAppSourceUrl(url: string): boolean {
+  return isNextChunksUrl(url) || isViteSourceUrl(url)
+}
+
+/**
  * Extract the path after /_next/ from a URL
  * Returns null if /_next/ is not found
  */

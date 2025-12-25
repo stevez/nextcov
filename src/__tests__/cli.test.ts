@@ -316,6 +316,7 @@ describe('CLI', () => {
         inputs: ['coverage/missing'],
         output: './coverage/merged',
         reporters: ['html'],
+        strip: false,
       })
 
       expect(result.success).toBe(false)
@@ -329,6 +330,7 @@ describe('CLI', () => {
         inputs: ['coverage/unit', 'coverage/e2e'],
         output: './coverage/merged',
         reporters: ['html', 'lcov'],
+        strip: false,
       })
 
       expect(result.success).toBe(true)
@@ -342,6 +344,7 @@ describe('CLI', () => {
         inputs: ['coverage/unit'],
         output: './coverage/merged',
         reporters: ['json'],
+        strip: false,
       })
 
       expect(result.success).toBe(false)
@@ -356,6 +359,7 @@ describe('CLI', () => {
         inputs: ['coverage/unit', 'coverage/e2e'],
         output: './coverage/merged',
         reporters: ['html'],
+        strip: false,
       })
 
       expect(result.success).toBe(false)
@@ -370,6 +374,7 @@ describe('CLI', () => {
         inputs: ['coverage/unit', 'coverage/e2e'],
         output: './coverage/merged',
         reporters: ['html'],
+        strip: false,
       })
 
       expect(result.success).toBe(false)

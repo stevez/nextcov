@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { input, select, confirm } from '@inquirer/prompts'
+import { execSync } from 'child_process'
 
 export const INIT_HELP = `
 Usage: npx nextcov init [options]
@@ -146,7 +147,7 @@ export async function promptForOptions(
 
   // Coverage merge script
   const mergeCoverage = await confirm({
-    message: 'Add coverage:merge script? (merges unit + e2e coverage)',
+    message: 'Add coverage:merge script? (merges unit + component + e2e coverage)',
     default: defaults.mergeCoverage,
   })
 
@@ -175,16 +176,16 @@ function getGlobalSetupTemplate(ext: string): string {
   return `/**
  * Global Setup for E2E Tests
  *
- * Starts server-side coverage collection (for dev mode).
- * In production mode, this is a no-op but still called for consistency.
+ * Initializes coverage collection before tests run.
+ * Works for both client-only and full (client + server) coverage modes.
  */
 
 import * as path from 'path'
-import { startServerCoverage, loadNextcovConfig } from 'nextcov/playwright'
+import { initCoverage, loadNextcovConfig } from 'nextcov/playwright'
 
 export default async function globalSetup() {
   const config = await loadNextcovConfig(path.join(process.cwd(), 'playwright.config.${ext}'))
-  await startServerCoverage(config)
+  await initCoverage(config)
 }
 `
 }
@@ -256,16 +257,39 @@ export { expect }
 }
 
 /**
+ * Detect custom distDir from next.config file
+ * Returns the distDir value if found, otherwise null
+ */
+function detectDistDir(nextConfigPath: string | null): string | null {
+  if (!nextConfigPath) return null
+
+  try {
+    const content = readFileSync(nextConfigPath, 'utf-8')
+    // Look for distDir: 'value' or distDir: "value"
+    const match = content.match(/distDir:\s*['"]([^'"]+)['"]/)
+    if (match) {
+      return match[1]
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return null
+}
+
+/**
  * Get nextcov config to add to playwright.config.ts
  */
-function getNextcovConfig(collectServer: boolean): string {
-  const collectServerLine = collectServer ? '' : '\n  collectServer: false,  // Client-only mode'
-  return `
+function getNextcovConfig(collectServer: boolean, buildDir: string | null): string {
+  const buildDirLine = buildDir ? `\n  buildDir: '${buildDir}',` : ''
+
+  if (collectServer) {
+    // Full mode: include cdpPort for server coverage via Chrome DevTools Protocol
+    return `
 // Nextcov configuration
 export const nextcov: NextcovConfig = {
-  cdpPort: 9230,
+  cdpPort: 9230,${buildDirLine}
   outputDir: 'coverage/e2e',
-  sourceRoot: './src',${collectServerLine}
+  sourceRoot: './src',
   include: ['src/**/*.{ts,tsx,js,jsx}'],
   exclude: [
     'src/**/__tests__/**',
@@ -275,6 +299,24 @@ export const nextcov: NextcovConfig = {
   reporters: ['html', 'lcov', 'json', 'text-summary'],
 }
 `
+  } else {
+    // Client-only mode: no cdpPort needed
+    return `
+// Nextcov configuration
+export const nextcov: NextcovConfig = {${buildDirLine}
+  outputDir: 'coverage/e2e',
+  sourceRoot: './src',
+  collectServer: false,  // Client-only mode
+  include: ['src/**/*.{ts,tsx,js,jsx}'],
+  exclude: [
+    'src/**/__tests__/**',
+    'src/**/*.test.{ts,tsx}',
+    'src/**/*.spec.{ts,tsx}',
+  ],
+  reporters: ['html', 'lcov', 'json', 'text-summary'],
+}
+`
+  }
 }
 
 /**
@@ -302,7 +344,8 @@ function modifyPlaywrightConfig(
   configPath: string,
   ext: 'ts' | 'js',
   e2eDir: string,
-  collectServer: boolean
+  collectServer: boolean,
+  buildDir: string | null
 ): { modified: boolean; error?: string } {
   if (!existsSync(configPath)) {
     return { modified: false, error: `playwright.config.${ext} not found. Run \`npx playwright init\` first.` }
@@ -328,7 +371,7 @@ function modifyPlaywrightConfig(
   }
 
   // Find the defineConfig call and add nextcov config before it
-  const nextcovConfigBlock = getNextcovConfig(collectServer)
+  const nextcovConfigBlock = getNextcovConfig(collectServer, buildDir)
   const defineConfigMatch = content.match(/export default defineConfig\s*\(/)
   if (defineConfigMatch && defineConfigMatch.index !== undefined) {
     content = content.slice(0, defineConfigMatch.index) +
@@ -344,13 +387,9 @@ function modifyPlaywrightConfig(
   const configObjectMatch = content.match(/defineConfig\s*\(\s*\{/)
   if (configObjectMatch && configObjectMatch.index !== undefined) {
     const insertPos = configObjectMatch.index + configObjectMatch[0].length
-    // In client-only mode, skip globalSetup (not needed)
-    const setupConfig = collectServer
-      ? `
+    // Both modes need globalSetup (initializes coverage) and globalTeardown (finalizes)
+    const setupConfig = `
   globalSetup: './${e2eDir}/global-setup.${ext}',
-  globalTeardown: './${e2eDir}/global-teardown.${ext}',
-`
-      : `
   globalTeardown: './${e2eDir}/global-teardown.${ext}',
 `
     // Only add if not already present
@@ -457,26 +496,22 @@ function checkForBabel(cwd: string): { hasBabel: boolean; files: string[] } {
  */
 function getNextConfigE2ESnippet(): string {
   return `
-// E2E mode enables source maps for coverage collection
-const isE2EMode = process.env.E2E_MODE === 'true'
+  // E2E mode enables source maps for coverage collection
+  const isE2EMode = process.env.E2E_MODE === 'true'
 `
 }
 
 /**
- * Get the webpack config for E2E mode
+ * Get the webpack config for E2E mode (full webpack property)
+ *
+ * Note: In dev mode, Next.js uses inline source maps which nextcov handles automatically.
+ * These settings only affect production builds (build:e2e / start:e2e).
  */
 function getWebpackConfigSnippet(): string {
-  return `  webpack: (config, { isServer, dev }) => {
+  return `  webpack: (config, { isServer }) => {
     if (isE2EMode) {
-      // Force source-map generation for accurate coverage
-      if (dev) {
-        Object.defineProperty(config, 'devtool', {
-          get() { return 'source-map' },
-          set() { /* Ignore Next.js overrides */ },
-        })
-      } else {
-        config.devtool = 'source-map'
-      }
+      // Enable source maps for production build coverage
+      config.devtool = 'source-map'
 
       // Disable minification so coverage maps correctly to source
       config.optimization = {
@@ -495,6 +530,55 @@ function getWebpackConfigSnippet(): string {
     return config
   },
 `
+}
+
+/**
+ * Get the webpack body snippet for injecting into existing webpack config
+ * This is a simplified version that works for most cases
+ */
+function getWebpackBodySnippet(): string {
+  return `if (isE2EMode) {
+      // Force source-map generation for accurate coverage
+      config.devtool = 'source-map'
+
+      // Disable minification so coverage maps correctly to source
+      config.optimization = {
+        ...config.optimization,
+        minimize: false,
+      }
+    }
+    `
+}
+
+/**
+ * Get the full webpack replacement for simple passthrough configs
+ * Replaces: webpack: (config) => { return config; }
+ *
+ * Note: In dev mode, Next.js uses inline source maps which nextcov handles automatically.
+ * These settings only affect production builds (build:e2e / start:e2e).
+ */
+function getFullWebpackReplacement(): string {
+  return `webpack: (config, { isServer }) => {
+      if (isE2EMode) {
+        // Enable source maps for production build coverage
+        config.devtool = 'source-map'
+
+        // Disable minification so coverage maps correctly to source
+        config.optimization = {
+          ...config.optimization,
+          minimize: false,
+        }
+
+        // Fix server-side source map paths
+        if (isServer) {
+          config.output = {
+            ...config.output,
+            devtoolModuleFilenameTemplate: '[absolute-resource-path]',
+          }
+        }
+      }
+      return config
+    }`
 }
 
 /**
@@ -525,17 +609,44 @@ function modifyNextConfig(configPath: string): { modified: boolean; path: string
 
   const originalContent = content
 
-  // Add E2E mode variable at the top (after imports)
+  // Detect if this is a functional config (export default (phase) => { ... })
+  // Need to handle typed parameters like: (phase: string, { defaultConfig }: { defaultConfig: NextConfig }) => {
+  const isFunctionalConfig = /export\s+default\s+function/.test(content) ||
+    /module\.exports\s*=\s*function/.test(content) ||
+    // Arrow function: look for export default followed by ( and eventually ) => {
+    /export\s+default\s*\([\s\S]*?\)\s*=>\s*\{/.test(content) ||
+    /module\.exports\s*=\s*\([\s\S]*?\)\s*=>\s*\{/.test(content)
+
   const e2eSnippet = getNextConfigE2ESnippet()
 
-  // Find a good insertion point - after imports but before config
-  const importMatch = content.match(/^(import\s+.+\n)+/m)
-  if (importMatch && importMatch.index !== undefined) {
-    const insertPos = importMatch.index + importMatch[0].length
-    content = content.slice(0, insertPos) + e2eSnippet + content.slice(insertPos)
+  if (isFunctionalConfig) {
+    // For functional configs, add isE2EMode inside the function body
+    // Find the arrow function pattern with => { and insert after the opening brace
+    // This handles typed parameters like (phase: string, { defaultConfig }: { defaultConfig: NextConfig }) => {
+    const arrowFuncPattern = /(export\s+default\s*\([\s\S]*?\)\s*=>\s*\{)/
+    const regularFuncPattern = /(export\s+default\s+function\s*\w*\s*\([^)]*\)\s*\{)/
+    const moduleExportsArrowPattern = /(module\.exports\s*=\s*\([\s\S]*?\)\s*=>\s*\{)/
+    const moduleExportsFuncPattern = /(module\.exports\s*=\s*function\s*\w*\s*\([^)]*\)\s*\{)/
+
+    let match = content.match(arrowFuncPattern) ||
+                content.match(regularFuncPattern) ||
+                content.match(moduleExportsArrowPattern) ||
+                content.match(moduleExportsFuncPattern)
+
+    if (match && match.index !== undefined) {
+      const insertPos = match.index + match[0].length
+      content = content.slice(0, insertPos) + e2eSnippet + content.slice(insertPos)
+    }
   } else {
-    // No imports, add at the very beginning
-    content = e2eSnippet + content
+    // For object configs, add at the top after imports
+    const importMatch = content.match(/^(import\s+.+\n)+/m)
+    if (importMatch && importMatch.index !== undefined) {
+      const insertPos = importMatch.index + importMatch[0].length
+      content = content.slice(0, insertPos) + e2eSnippet + content.slice(insertPos)
+    } else {
+      // No imports, add at the very beginning
+      content = e2eSnippet + content
+    }
   }
 
   // Add productionBrowserSourceMaps if not present
@@ -556,7 +667,7 @@ function modifyNextConfig(configPath: string): { modified: boolean; path: string
       if (match && match.index !== undefined) {
         const insertPos = match.index + match[0].length
         content = content.slice(0, insertPos) +
-          '\n  productionBrowserSourceMaps: isE2EMode,' +
+          '\n    productionBrowserSourceMaps: isE2EMode,' +
           content.slice(insertPos)
         inserted = true
         break
@@ -569,9 +680,15 @@ function modifyNextConfig(configPath: string): { modified: boolean; path: string
     }
   }
 
-  // Add webpack config if not present
-  if (!content.includes('webpack:') && !content.includes('webpack :')) {
-    // Find the config object and add webpack config
+  // Handle webpack config
+  const hasWebpackConfig = content.includes('webpack:') || content.includes('webpack :')
+  // Check if the webpack function itself already contains isE2EMode checks
+  // We look for isE2EMode within the webpack function body, not just anywhere in the file
+  const webpackMatch = content.match(/webpack:\s*\([^)]+\)\s*=>\s*\{[\s\S]*?\n\s*\}/)
+  const hasE2EModeInWebpack = webpackMatch ? webpackMatch[0].includes('isE2EMode') : false
+
+  if (!hasWebpackConfig) {
+    // No webpack config - add one
     const configPatterns = [
       /const\s+\w+\s*(?::\s*\w+)?\s*=\s*\{/,
       /module\.exports\s*=\s*\{/,
@@ -603,13 +720,54 @@ function modifyNextConfig(configPath: string): { modified: boolean; path: string
         'productionBrowserSourceMaps: isE2EMode,\n  // TODO: Add webpack config for E2E mode source maps'
       )
     }
-  } else {
-    // Webpack config exists, add a comment about E2E mode
-    if (!content.includes('isE2EMode') || content.indexOf('isE2EMode') === content.lastIndexOf('isE2EMode')) {
-      // Only one occurrence (the variable declaration), need to add usage
+  } else if (!hasE2EModeInWebpack) {
+    // Webpack config exists but doesn't have E2E mode checks
+    // Try to inject E2E mode checks into existing webpack config
+
+    let injected = false
+
+    // First, try to match simple passthrough webpack configs and replace entirely
+    // These patterns match various formats of: webpack: (config) => { return config; }
+    // Including multi-line versions with various indentation
+    const simpleWebpackPatterns = [
+      // Single line: webpack: (config) => { return config; }
+      /webpack:\s*\(\s*config\s*\)\s*=>\s*\{\s*return\s+config;?\s*\}/,
+      // Multi-line: webpack: (config) => {\n      return config;\n    }
+      // Using [\s\S]*? to match any whitespace including newlines
+      /webpack:\s*\(\s*config\s*\)\s*=>\s*\{[\s\S]*?return\s+config;?[\s\S]*?\}/,
+    ]
+
+    for (const pattern of simpleWebpackPatterns) {
+      if (pattern.test(content)) {
+        content = content.replace(pattern, getFullWebpackReplacement())
+        injected = true
+        break
+      }
+    }
+
+    // If not a simple passthrough, try to inject into existing webpack config
+    if (!injected) {
+      const webpackBodySnippet = getWebpackBodySnippet()
+
+      // Look for patterns with return config and inject before it
+      // Match webpack configs with various parameter styles
+      const returnConfigPattern = /(webpack:\s*\([^)]+\)\s*=>\s*\{[\s\S]*?)(return\s+config)/
+
+      const match = content.match(returnConfigPattern)
+      if (match && match.index !== undefined) {
+        content = content.replace(
+          returnConfigPattern,
+          `$1${webpackBodySnippet}$2`
+        )
+        injected = true
+      }
+    }
+
+    if (!injected) {
+      // Couldn't inject, add a comment
       content = content.replace(
         'productionBrowserSourceMaps: isE2EMode,',
-        'productionBrowserSourceMaps: isE2EMode,\n  // Note: Add E2E mode checks to your webpack config for source maps'
+        'productionBrowserSourceMaps: isE2EMode,\n  // Note: Add E2E mode checks to your webpack config for server-side source maps'
       )
     }
   }
@@ -624,11 +782,16 @@ function modifyNextConfig(configPath: string): { modified: boolean; path: string
 }
 
 /**
- * Add npm scripts and browserslist to package.json
+ * Add npm scripts, devDependencies, and browserslist to package.json
  */
-function modifyPackageJson(packagePath: string, mergeCoverage: boolean, collectServer: boolean): { modified: boolean; error?: string } {
+function modifyPackageJson(
+  packagePath: string,
+  mergeCoverage: boolean,
+  collectServer: boolean,
+  isNextJs: boolean
+): { modified: boolean; needsInstall: boolean; error?: string } {
   if (!existsSync(packagePath)) {
-    return { modified: false, error: 'package.json not found' }
+    return { modified: false, needsInstall: false, error: 'package.json not found' }
   }
 
   const content = readFileSync(packagePath, 'utf-8')
@@ -636,32 +799,80 @@ function modifyPackageJson(packagePath: string, mergeCoverage: boolean, collectS
   try {
     pkg = JSON.parse(content)
   } catch {
-    return { modified: false, error: 'Failed to parse package.json' }
+    return { modified: false, needsInstall: false, error: 'Failed to parse package.json' }
   }
 
   const scripts = (pkg.scripts || {}) as Record<string, string>
+  const devDeps = (pkg.devDependencies || {}) as Record<string, string>
   let modified = false
+  let needsInstall = false
 
-  // Add dev script - with --inspect flag for server coverage, simpler for client-only
-  if (!scripts['dev:e2e'] && !scripts['dev']?.includes('--inspect')) {
-    if (collectServer) {
-      scripts['dev:e2e'] = 'cross-env NODE_OPTIONS=--inspect=9230 next dev'
-    } else {
-      // Client-only mode: no --inspect needed, just set E2E_MODE for source maps
-      scripts['dev:e2e'] = 'cross-env E2E_MODE=true next dev'
+  // Add e2e scripts - only for Next.js projects
+  if (isNextJs) {
+    // Add cross-env as devDependency if not present (needed for all e2e scripts)
+    if (!devDeps['cross-env']) {
+      devDeps['cross-env'] = 'latest'
+      needsInstall = true
     }
-    modified = true
+
+    // Add start-server-and-test as devDependency if not present (needed for test:e2e script)
+    if (!devDeps['start-server-and-test']) {
+      devDeps['start-server-and-test'] = 'latest'
+      needsInstall = true
+    }
+
+    // Add concurrently as devDependency if not present (needed for start:e2e script)
+    if (!devDeps['concurrently']) {
+      devDeps['concurrently'] = 'latest'
+      needsInstall = true
+    }
+
+    // Add dev:e2e script
+    if (!scripts['dev:e2e'] && !scripts['dev']?.includes('--inspect')) {
+      if (collectServer) {
+        // Full mode: with --inspect flag for server coverage
+        scripts['dev:e2e'] = 'cross-env NODE_OPTIONS=--inspect=9230 next dev'
+      } else {
+        // Client-only mode: no --inspect needed, just set E2E_MODE for source maps
+        scripts['dev:e2e'] = 'cross-env E2E_MODE=true next dev'
+      }
+      modified = true
+    }
+
+    // Add build:e2e script (production build with source maps)
+    if (!scripts['build:e2e']) {
+      scripts['build:e2e'] = 'cross-env E2E_MODE=true next build'
+      modified = true
+    }
+
+    // Add start:local script (production start with inspector for server coverage)
+    if (!scripts['start:local']) {
+      if (collectServer) {
+        // Full mode: with --inspect flag and NODE_V8_COVERAGE for server coverage
+        scripts['start:local'] = 'cross-env NODE_OPTIONS=--inspect=9230 NODE_V8_COVERAGE=coverage/e2e/tmp next start'
+      } else {
+        // Client-only mode: no --inspect needed
+        scripts['start:local'] = 'next start'
+      }
+      modified = true
+    }
+
+    // Add start:e2e script (starts both app server and mock server concurrently)
+    if (!scripts['start:e2e']) {
+      scripts['start:e2e'] = 'concurrently "npm run start:local" "npm run mock"'
+      modified = true
+    }
+
+    // Add test:e2e script (starts servers, waits for ready, runs tests)
+    if (!scripts['test:e2e']) {
+      scripts['test:e2e'] = 'start-server-and-test start:e2e http://localhost:3000 playwright-test'
+      modified = true
+    }
   }
 
-  // Add e2e:clean script
-  if (!scripts['e2e:clean']) {
-    scripts['e2e:clean'] = 'rimraf coverage/e2e'
-    modified = true
-  }
-
-  // Add coverage:merge script for merging unit + e2e coverage (only if enabled)
+  // Add coverage:merge script for merging unit + component + e2e coverage (only if enabled)
   if (mergeCoverage && !scripts['coverage:merge']) {
-    scripts['coverage:merge'] = 'nextcov merge coverage/unit coverage/e2e -o coverage/merged'
+    scripts['coverage:merge'] = 'nextcov merge coverage/unit coverage/component coverage/e2e -o coverage/merged'
     modified = true
   }
 
@@ -677,12 +888,13 @@ function modifyPackageJson(packagePath: string, mergeCoverage: boolean, collectS
     modified = true
   }
 
-  if (modified) {
+  if (modified || needsInstall) {
     pkg.scripts = scripts
+    pkg.devDependencies = devDeps
     writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
   }
 
-  return { modified }
+  return { modified: modified || needsInstall, needsInstall }
 }
 
 /**
@@ -713,7 +925,7 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
     skipped: [],
   }
 
-  // === Pre-flight checks ===
+  // === Pre-flight checks (before interactive prompts) ===
   // 1. Require Playwright to be set up first
   const detected = detectPlaywrightConfigType(cwd)
   if (!detected) {
@@ -731,7 +943,7 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
     }
   }
 
-  // 2. Check for Babel - not supported
+  // 2. Check for Babel - not supported (applies to all modes)
   const babelCheck = checkForBabel(cwd)
   if (babelCheck.hasBabel) {
     console.error('❌ Babel is not supported by nextcov\n')
@@ -752,13 +964,24 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
     }
   }
 
-  // 3. Check for Next.js config
+  // Run interactive prompts if enabled (BEFORE Next.js check, so user can choose client-only mode)
+  let finalOptions = options
+  if (options.interactive) {
+    finalOptions = await promptForOptions(options, detected.ext)
+  } else {
+    console.log('📊 nextcov init\n')
+  }
+
+  // === Post-prompt checks (depend on user's mode selection) ===
+  // 3. Check for Next.js config - only required for full mode (server coverage)
   const nextConfigPath = findNextConfig(cwd)
-  if (!nextConfigPath) {
+  if (finalOptions.collectServer && !nextConfigPath) {
     console.error('❌ Next.js config not found\n')
     console.error('   Could not find next.config.ts, next.config.js, or next.config.mjs')
-    console.error('\n   nextcov requires a Next.js project with a config file.')
-    console.error('   Make sure you are in the root of a Next.js project.')
+    console.error('\n   Full mode (server coverage) requires a Next.js project.')
+    console.error('   Options:')
+    console.error('   1. Make sure you are in the root of a Next.js project')
+    console.error('   2. Use client-only mode: npx nextcov init --client-only')
     return {
       success: false,
       error: 'Next.js config not found',
@@ -770,7 +993,7 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
 
   // 4. Check for Jest - only if mergeCoverage is enabled
   // Jest coverage format is not compatible with nextcov merge
-  if (options.mergeCoverage) {
+  if (finalOptions.mergeCoverage) {
     const jestCheck = checkForJest(cwd)
     if (jestCheck.hasJest) {
       console.error('❌ Jest is not supported for coverage merging\n')
@@ -794,29 +1017,19 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
     }
   }
 
-  // Run interactive prompts if enabled
-  let finalOptions = options
-  if (options.interactive) {
-    finalOptions = await promptForOptions(options, detected.ext)
-  } else {
-    console.log('📊 nextcov init\n')
-  }
-
   // Use detected ext (guaranteed to exist after check above)
   const ext = detected.ext
   const playwrightConfigPath = detected.path
 
-  // Create e2e/global-setup (only for full mode with server coverage)
-  if (finalOptions.collectServer) {
-    const globalSetupPath = join(cwd, finalOptions.e2eDir, `global-setup.${ext}`)
-    if (canCreate(globalSetupPath, finalOptions.force)) {
-      safeWriteFile(globalSetupPath, getGlobalSetupTemplate(ext))
-      result.created.push(globalSetupPath)
-      console.log(`   ✓ Created ${finalOptions.e2eDir}/global-setup.${ext}`)
-    } else {
-      result.skipped.push(globalSetupPath)
-      console.log(`   ⊘ Skipped ${finalOptions.e2eDir}/global-setup.${ext} (already exists)`)
-    }
+  // Create e2e/global-setup (needed for both modes to initialize coverage)
+  const globalSetupPath = join(cwd, finalOptions.e2eDir, `global-setup.${ext}`)
+  if (canCreate(globalSetupPath, finalOptions.force)) {
+    safeWriteFile(globalSetupPath, getGlobalSetupTemplate(ext))
+    result.created.push(globalSetupPath)
+    console.log(`   ✓ Created ${finalOptions.e2eDir}/global-setup.${ext}`)
+  } else {
+    result.skipped.push(globalSetupPath)
+    console.log(`   ⊘ Skipped ${finalOptions.e2eDir}/global-setup.${ext} (already exists)`)
   }
 
   // Create e2e/global-teardown
@@ -841,8 +1054,11 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
     console.log(`   ⊘ Skipped ${finalOptions.e2eDir}/fixtures/test-fixtures.${ext} (already exists)`)
   }
 
+  // Detect custom distDir from next.config (for buildDir in playwright config)
+  const distDir = detectDistDir(nextConfigPath)
+
   // Modify playwright.config
-  const configResult = modifyPlaywrightConfig(playwrightConfigPath, ext, finalOptions.e2eDir, finalOptions.collectServer)
+  const configResult = modifyPlaywrightConfig(playwrightConfigPath, ext, finalOptions.e2eDir, finalOptions.collectServer, distDir)
   if (configResult.error) {
     console.log(`   ⚠ ${configResult.error}`)
   } else if (configResult.modified) {
@@ -854,27 +1070,41 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
 
   // Modify package.json
   const packageJsonPath = join(cwd, 'package.json')
-  const pkgResult = modifyPackageJson(packageJsonPath, finalOptions.mergeCoverage, finalOptions.collectServer)
+  const isNextJs = nextConfigPath !== null
+  const pkgResult = modifyPackageJson(packageJsonPath, finalOptions.mergeCoverage, finalOptions.collectServer, isNextJs)
   if (pkgResult.error) {
     console.log(`   ⚠ ${pkgResult.error}`)
   } else if (pkgResult.modified) {
     result.modified.push(packageJsonPath)
-    console.log(`   ✓ Modified package.json (added scripts)`)
+    console.log(`   ✓ Modified package.json (added scripts and dependencies)`)
+
+    // Run npm install if new dependencies were added
+    if (pkgResult.needsInstall) {
+      console.log(`   ⏳ Installing dependencies...`)
+      try {
+        execSync('npm install', { cwd, stdio: 'inherit' })
+        console.log(`   ✓ Dependencies installed`)
+      } catch {
+        console.log(`   ⚠ Failed to install dependencies. Run 'npm install' manually.`)
+      }
+    }
   } else {
     console.log(`   ⊘ Skipped package.json (scripts already exist)`)
   }
 
-  // Modify next.config (nextConfigPath is guaranteed to exist from pre-flight check)
-  const nextConfigResult = modifyNextConfig(nextConfigPath)
-  if (nextConfigResult.error) {
-    console.log(`   ⚠ ${nextConfigResult.error}`)
-  } else if (nextConfigResult.modified) {
-    result.modified.push(nextConfigResult.path)
-    const configName = nextConfigResult.path.split(/[/\\]/).pop()
-    console.log(`   ✓ Modified ${configName} (added E2E mode settings)`)
-  } else {
-    const configName = nextConfigResult.path.split(/[/\\]/).pop()
-    console.log(`   ⊘ Skipped ${configName} (already configured)`)
+  // Modify next.config (only for full mode with server coverage, or if next.config exists)
+  if (nextConfigPath) {
+    const nextConfigResult = modifyNextConfig(nextConfigPath)
+    if (nextConfigResult.error) {
+      console.log(`   ⚠ ${nextConfigResult.error}`)
+    } else if (nextConfigResult.modified) {
+      result.modified.push(nextConfigResult.path)
+      const configName = nextConfigResult.path.split(/[/\\]/).pop()
+      console.log(`   ✓ Modified ${configName} (added E2E mode settings)`)
+    } else {
+      const configName = nextConfigResult.path.split(/[/\\]/).pop()
+      console.log(`   ⊘ Skipped ${configName} (already configured)`)
+    }
   }
 
   // Summary
@@ -892,7 +1122,7 @@ export async function executeInit(options: InitOptions): Promise<InitResult> {
   // Next steps - different guidance for client-only vs full mode
   console.log('\n📝 Next steps:')
   console.log('   1. Import test fixtures in your tests:')
-  console.log(`      import { test, expect } from './${finalOptions.e2eDir}/fixtures/test-fixtures'`)
+  console.log(`      import { test, expect } from './fixtures/test-fixtures'`)
 
   if (finalOptions.collectServer) {
     // Full mode: server + client coverage
