@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.0] - 2024-12-26
+
+### Changed
+
+- **Refactored converter and parsers into modular structure** - Split large monolithic files into focused modules for better maintainability
+  - Split `converter.ts` (2,117 lines) into `converter/` folder with 4 modules:
+    - `converter/index.ts` - Main CoverageConverter class (1,007 lines)
+    - `converter/merge.ts` - V8 coverage merging (82 lines)
+    - `converter/sanitizer.ts` - Source map sanitization (340 lines)
+    - `converter/coverage-fixes.ts` - Istanbul coverage fixes (754 lines)
+  - Created `parsers/` folder (6 modules, 553 lines total):
+    - Extracted bundler-specific patterns from `constants.ts`
+    - `parsers/nextjs.ts` - Next.js URL patterns (101 lines)
+    - `parsers/vite.ts` - Vite URL patterns (93 lines)
+    - `parsers/webpack.ts` - Webpack URL patterns (94 lines)
+    - `parsers/sourcemap.ts` - Source map patterns (92 lines)
+    - `parsers/url-utils.ts` - URL utilities (68 lines)
+  - Reduced `constants.ts` from 317 to 92 lines (-71%)
+  - All exports remain backward compatible - no breaking changes for users
+
+### Internal
+
+- **Improved test coverage** - Added comprehensive tests for new modules (+2,047 test lines)
+  - Coverage improved from 72.75% to 77.53% (+4.78%)
+  - Created 9 new test files for parsers and converter modules
+  - All 678 tests passing
+
 ## [0.10.1] - 2024-12-26
 
 ### Fixed

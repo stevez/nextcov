@@ -30,3 +30,4 @@ test-fixtures/sample-coverage/test-merged/
 # Misc
 *.tgz
 .npm
+COMMIT_MESSAGE.txt
