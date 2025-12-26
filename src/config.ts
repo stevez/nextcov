@@ -311,13 +311,21 @@ export async function loadNextcovConfig(configPath?: string): Promise<ResolvedNe
     const configUrl = `file://${searchPath.replace(/\\/g, '/')}`
     const module = await import(configUrl)
 
-    // Handle both direct exports and nested default exports
-    // module.default might be the config, or it might have a nested 'default' property
+    // Handle both ESM and CJS module patterns:
+    // ESM projects: named exports appear directly on module (module.nextcov)
+    // CJS projects: exports may be wrapped in module.default
     const defaultExport = module.default as Record<string, unknown> | undefined
+
+    // For defineConfig result, handle nested default (module.default.default)
     const actualConfig = (defaultExport?.default ?? defaultExport) as Record<string, unknown> | undefined
 
+    // Look for nextcov config in multiple places to handle different module systems:
+    // 1. ESM named export: module.nextcov
+    // 2. CJS wrapped export: module.default?.nextcov (named exports wrapped in default)
+    // 3. As property of defineConfig result: actualConfig?.nextcov
     const nextcovConfig: NextcovConfig | undefined =
       module.nextcov ||
+      (defaultExport?.nextcov as NextcovConfig | undefined) ||
       (actualConfig?.nextcov as NextcovConfig | undefined)
 
     // Extract Playwright's use.baseURL if available

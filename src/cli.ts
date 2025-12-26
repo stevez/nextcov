@@ -1,13 +1,13 @@
-#!/usr/bin/env node
 /**
  * nextcov CLI
  *
  * Commands:
+ *   init  - Initialize nextcov in your project
  *   merge - Merge multiple coverage reports into one
  */
 
 import { resolve } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 
 export const HELP = `
@@ -17,12 +17,14 @@ Usage:
   npx nextcov <command> [options]
 
 Commands:
+  init        Initialize nextcov in your project
   merge       Merge multiple coverage reports into one
 
 Options:
   --help      Show this help message
 
 Examples:
+  npx nextcov init
   npx nextcov merge coverage/unit coverage/integration
   npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/all
 `
@@ -32,12 +34,17 @@ Usage: npx nextcov merge <dirs...> [options]
 
 Merge multiple coverage directories into a single report.
 
+By default, coverage directives (import statements, 'use client', 'use server')
+are stripped from the coverage data before merging. This ensures accurate merged
+coverage when combining unit/component tests with E2E tests.
+
 Arguments:
   dirs                  Coverage directories to merge (must contain coverage-final.json)
 
 Options:
   -o, --output <dir>    Output directory for merged report (default: ./coverage/merged)
   --reporters <list>    Comma-separated reporters: html,lcov,json,text-summary (default: html,lcov,json,text-summary)
+  --no-strip            Disable stripping of import statements and directives
   --help                Show this help message
 
 Examples:
@@ -56,7 +63,9 @@ async function main(): Promise<number> {
 
   const command = args[0]
 
-  if (command === 'merge') {
+  if (command === 'init') {
+    return await runInit(args.slice(1))
+  } else if (command === 'merge') {
     return await runMerge(args.slice(1))
   } else {
     console.error(`Unknown command: ${command}`)
@@ -69,6 +78,7 @@ export interface MergeOptions {
   inputs: string[]
   output: string
   reporters: string[]
+  strip: boolean
 }
 
 export interface ParseResult {
@@ -85,6 +95,7 @@ export function parseMergeArgs(args: string[]): ParseResult {
   const inputs: string[] = []
   let output = './coverage/merged'
   let reporters = ['html', 'lcov', 'json', 'text-summary']
+  let strip = true // Default: strip is enabled
 
   let i = 0
   while (i < args.length) {
@@ -104,6 +115,9 @@ export function parseMergeArgs(args: string[]): ParseResult {
       } else {
         return { error: `Missing value for ${arg}` }
       }
+    } else if (arg === '--no-strip') {
+      strip = false
+      i++
     } else if (!arg.startsWith('-')) {
       // Positional argument - treat as input directory
       inputs.push(arg)
@@ -117,7 +131,7 @@ export function parseMergeArgs(args: string[]): ParseResult {
     return { error: 'No coverage directories specified', showHelp: true }
   }
 
-  return { options: { inputs, output, reporters } }
+  return { options: { inputs, output, reporters, strip } }
 }
 
 export interface MergeResult {
@@ -125,6 +139,78 @@ export interface MergeResult {
   error?: string
   showHelp?: boolean
   outputDir?: string
+}
+
+export interface StripResult {
+  importsRemoved: number
+  directivesRemoved: number
+}
+
+/**
+ * Strip import statements and Next.js directives from Istanbul coverage data.
+ *
+ * This normalizes coverage data before merging Unit/Component with E2E coverage,
+ * since E2E (Next.js bundled) doesn't include import statements or directives.
+ *
+ * Strips:
+ * - import statements (import ... from '...')
+ * - 'use server' directives
+ * - 'use client' directives
+ */
+export function stripCoverageDirectives(coverageJson: Record<string, FileCoverageData>): StripResult {
+  let importsRemoved = 0
+  let directivesRemoved = 0
+
+  for (const [file, data] of Object.entries(coverageJson)) {
+    // Read source file to check line content
+    let lines: string[] = []
+    try {
+      lines = readFileSync(file, 'utf-8').split('\n')
+    } catch {
+      // File not found, skip
+      continue
+    }
+
+    // Find statement keys to remove
+    const keysToRemove: Array<{ key: string; type: 'import' | 'directive' }> = []
+    for (const [key, stmt] of Object.entries(data.statementMap || {})) {
+      const lineNum = stmt.start.line
+      const lineContent = lines[lineNum - 1]?.trim() || ''
+
+      // Check if line is an import statement
+      if (lineContent.startsWith('import ') || lineContent.startsWith('import{')) {
+        keysToRemove.push({ key, type: 'import' })
+      }
+      // Check if line is a 'use server' or 'use client' directive
+      else if (
+        lineContent === "'use server'" || lineContent === '"use server"' ||
+        lineContent === "'use server';" || lineContent === '"use server";' ||
+        lineContent === "'use client'" || lineContent === '"use client"' ||
+        lineContent === "'use client';" || lineContent === '"use client";'
+      ) {
+        keysToRemove.push({ key, type: 'directive' })
+      }
+    }
+
+    // Remove statements
+    for (const { key, type } of keysToRemove) {
+      delete data.statementMap[key]
+      delete data.s[key]
+      if (type === 'import') {
+        importsRemoved++
+      } else {
+        directivesRemoved++
+      }
+    }
+  }
+
+  return { importsRemoved, directivesRemoved }
+}
+
+interface FileCoverageData {
+  statementMap: Record<string, { start: { line: number } }>
+  s: Record<string, number>
+  [key: string]: unknown
 }
 
 /**
@@ -178,6 +264,7 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
   }
   console.log(`   Output: ${options.output}`)
   console.log(`   Reporters: ${options.reporters.join(', ')}`)
+  console.log(`   Strip directives: ${options.strip ? 'yes' : 'no'}`)
 
   try {
     // Dynamic import to avoid loading heavy dependencies until needed
@@ -187,15 +274,38 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
     // Use nextcov's smart merger which handles mismatched statement maps
     const merger = createMerger({ applyFixes: true })
 
-    // Load all coverage files
+    // Load all coverage files, optionally stripping directives
     const coverageMaps = []
+    let totalImportsRemoved = 0
+    let totalDirectivesRemoved = 0
+
     for (const file of coverageFiles) {
       console.log(`   Loading: ${file}`)
-      const map = await merger.loadCoverageJson(file)
-      if (!map) {
-        return { success: false, error: `Failed to load coverage from ${file}` }
+
+      // Load raw JSON for stripping if enabled
+      if (options.strip) {
+        const rawJson = JSON.parse(readFileSync(file, 'utf-8'))
+        const { importsRemoved, directivesRemoved } = stripCoverageDirectives(rawJson)
+        totalImportsRemoved += importsRemoved
+        totalDirectivesRemoved += directivesRemoved
+
+        // Load the stripped data into a coverage map
+        const map = await merger.loadCoverageData(rawJson)
+        if (!map) {
+          return { success: false, error: `Failed to load coverage from ${file}` }
+        }
+        coverageMaps.push(map)
+      } else {
+        const map = await merger.loadCoverageJson(file)
+        if (!map) {
+          return { success: false, error: `Failed to load coverage from ${file}` }
+        }
+        coverageMaps.push(map)
       }
-      coverageMaps.push(map)
+    }
+
+    if (options.strip && (totalImportsRemoved > 0 || totalDirectivesRemoved > 0)) {
+      console.log(`   Stripped: ${totalImportsRemoved} imports, ${totalDirectivesRemoved} directives`)
     }
 
     // Merge all coverage maps using the merger's merge method
@@ -219,6 +329,30 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
+}
+
+async function runInit(args: string[]): Promise<number> {
+  // Dynamic import to avoid loading init dependencies until needed
+  const { parseInitArgs, executeInit, INIT_HELP } = await import('./init.js')
+
+  const result = parseInitArgs(args)
+
+  if (result.showHelp) {
+    console.log(INIT_HELP)
+    if (result.error) {
+      console.error(result.error)
+      return 1
+    }
+    return 0
+  }
+
+  if (result.error) {
+    console.error(result.error)
+    return 1
+  }
+
+  await executeInit(result.options!)
+  return 0
 }
 
 async function runMerge(args: string[]): Promise<number> {

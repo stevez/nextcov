@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/nextcov.svg)](https://badge.fury.io/js/nextcov)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-V8 code coverage for Next.js applications with Playwright E2E tests.
+V8 code coverage for Next.js and Vite applications with Playwright E2E tests.
 
 Merge your Playwright E2E coverage with Vitest unit test coverage for complete coverage reports.
 
@@ -42,9 +42,9 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 
 ## Features
 
-- **Next.js focused** - Built specifically for Next.js applications
-- **Client + Server coverage** - Collects coverage from both browser and Node.js server
-- **Client-only mode** - Skip server coverage for static sites, SPAs, or deployed environments
+- **Next.js + Vite support** - Works with Next.js and Vite applications
+- **Client + Server coverage** - Collects coverage from both browser and Node.js server (Next.js)
+- **Client-only mode** - For Vite apps, static sites, SPAs, or deployed environments
 - **Dev mode support** - Works with `next dev` (no build required), auto-detected
 - **Production mode support** - Works with `next build && next start` using external source maps
 - **Auto-detection** - Automatically detects dev vs production mode, no configuration needed
@@ -54,6 +54,7 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 - **Playwright integration** - Simple fixtures for automatic coverage collection
 - **Istanbul format** - Generates standard coverage-final.json for tooling compatibility
 - **Multiple reporters** - HTML, LCOV, JSON, text-summary, and more
+- **ESM and CJS support** - Works with both ES modules and CommonJS projects
 
 ## Inspiration
 
@@ -71,7 +72,7 @@ npm install nextcov --save-dev
 ## Requirements
 
 - Node.js >= 20
-- Next.js 14+ (including Next.js 15)
+- Next.js 14+ or Vite 5+
 - Playwright 1.40+
 
 ### Peer Dependencies
@@ -79,6 +80,44 @@ npm install nextcov --save-dev
 ```bash
 npm install @playwright/test --save-dev
 ```
+
+## Quick Setup with `nextcov init`
+
+The fastest way to get started is with the `init` command:
+
+```bash
+npx nextcov init
+```
+
+This interactive command will:
+- Create `e2e/global-setup.ts` - Initialize coverage collection
+- Create `e2e/global-teardown.ts` - Finalize and generate reports
+- Create `e2e/fixtures/test-fixtures.ts` - Coverage collection fixture
+- Modify `playwright.config.ts` - Add nextcov configuration
+- Modify `package.json` - Add npm scripts (`dev:e2e`, `coverage:merge`)
+- Modify `next.config.ts` - Add E2E mode settings for source maps (Next.js only)
+
+### Options
+
+```bash
+npx nextcov init                 # Interactive mode
+npx nextcov init -y              # Use defaults, no prompts
+npx nextcov init --client-only   # Client-only mode (no server coverage)
+npx nextcov init --e2e-dir tests # Custom e2e directory
+npx nextcov init --js            # Use JavaScript instead of TypeScript
+npx nextcov init --force         # Overwrite existing files
+```
+
+### Coverage Mode
+
+During interactive setup, you'll be asked to choose a coverage mode:
+
+| Mode | Description | Use When |
+|------|-------------|----------|
+| **Full (client + server)** | Collects both browser and Node.js coverage | Next.js with `next dev` or `next start` |
+| **Client-only** | Only browser coverage, simpler setup | Vite apps, static sites, SPAs, deployed environments |
+
+After running `init`, follow the next steps shown to start collecting coverage.
 
 ## Example Projects
 
@@ -227,15 +266,15 @@ Create `e2e/global-setup.ts`:
 
 ```typescript
 import * as path from 'path'
-import { startServerCoverage, loadNextcovConfig } from 'nextcov/playwright'
+import { initCoverage, loadNextcovConfig } from 'nextcov/playwright'
 
 export default async function globalSetup() {
   // Load config from playwright.config.ts
   const config = await loadNextcovConfig(
     path.join(process.cwd(), 'playwright.config.ts')
   )
-  // Start server coverage collection (auto-detects dev vs production mode)
-  await startServerCoverage(config)
+  // Initialize coverage collection (works for both client-only and full modes)
+  await initCoverage(config)
 }
 ```
 
@@ -344,10 +383,64 @@ npx playwright test
 
 Both modes produce identical Istanbul-compatible output that can be merged with Vitest coverage.
 
+## Vite Support
+
+nextcov supports Vite applications with client-only coverage. Vite serves source files directly with inline source maps, making coverage collection straightforward.
+
+### Quick Setup for Vite
+
+```bash
+npx nextcov init --client-only
+```
+
+This creates the necessary files for client-only coverage collection. Then configure your `playwright.config.ts`:
+
+```typescript
+import { defineConfig, devices } from '@playwright/test'
+import type { NextcovConfig } from 'nextcov'
+
+export const nextcov: NextcovConfig = {
+  outputDir: 'coverage/e2e',
+  sourceRoot: './src',
+  collectServer: false,  // Client-only mode for Vite
+  include: ['src/**/*.{ts,tsx,js,jsx}'],
+  exclude: [
+    'src/**/__tests__/**',
+    'src/**/*.test.{ts,tsx}',
+    'src/**/*.spec.{ts,tsx}',
+  ],
+  reporters: ['html', 'lcov', 'json', 'text-summary'],
+}
+
+export default defineConfig({
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+  testDir: './e2e',
+  use: {
+    baseURL: 'http://localhost:5173',  // Vite default port
+  },
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+  },
+  // ... other config
+})
+```
+
+Run your tests:
+
+```bash
+npx playwright test
+```
+
+Coverage reports will be generated at `coverage/e2e/`.
+
 ## Client-Only Mode
 
 For scenarios where you don't need server-side coverage, use `collectServer: false`. This is useful for:
 
+- **Vite applications** - React, Vue, Svelte apps built with Vite
 - **Static sites** - Next.js static exports (`next export` or `output: 'export'`)
 - **SPAs** - Single page applications with external/serverless backends
 - **Deployed environments** - Testing against staging or production URLs
@@ -365,11 +458,11 @@ export const nextcov: NextcovConfig = {
 }
 ```
 
-### Simplified Setup
+### Setup
 
-With `collectServer: false`, you don't need a `global-setup.ts` file at all. The setup is simpler:
+With `collectServer: false`, the setup is simpler (no `--inspect` flags needed):
 
-**1. Coverage fixture** (`e2e/fixtures.ts`) - same as before:
+**1. Coverage fixture** (`e2e/fixtures.ts`) - same as full mode:
 ```typescript
 import { test as base, expect } from '@playwright/test'
 import { collectClientCoverage } from 'nextcov/playwright'
@@ -386,17 +479,29 @@ export const test = base.extend({
 export { expect }
 ```
 
-**2. Global teardown** (`e2e/global-teardown.ts`):
+**2. Global setup** (`e2e/global-setup.ts`):
 ```typescript
+import * as path from 'path'
+import { initCoverage, loadNextcovConfig } from 'nextcov/playwright'
+
+export default async function globalSetup() {
+  const config = await loadNextcovConfig(path.join(process.cwd(), 'playwright.config.ts'))
+  await initCoverage(config)  // Initializes client-only mode
+}
+```
+
+**3. Global teardown** (`e2e/global-teardown.ts`):
+```typescript
+import * as path from 'path'
 import { finalizeCoverage, loadNextcovConfig } from 'nextcov/playwright'
 
 export default async function globalTeardown() {
-  const config = await loadNextcovConfig()
+  const config = await loadNextcovConfig(path.join(process.cwd(), 'playwright.config.ts'))
   await finalizeCoverage(config)  // Only processes client coverage
 }
 ```
 
-**3. Run tests** - no special server flags needed:
+**4. Run tests** - no special server flags needed:
 ```bash
 # Just start your server normally and run tests
 npm start &
@@ -492,12 +597,17 @@ Usage: npx nextcov merge <dirs...> [options]
 
 Merge multiple coverage directories into a single report.
 
+By default, coverage directives (import statements, 'use client', 'use server')
+are stripped from the coverage data before merging. This ensures accurate merged
+coverage when combining unit/component tests with E2E tests.
+
 Arguments:
   dirs                  Coverage directories to merge (must contain coverage-final.json)
 
 Options:
   -o, --output <dir>    Output directory for merged report (default: ./coverage/merged)
   --reporters <list>    Comma-separated reporters: html,lcov,json,text-summary (default: html,lcov,json,text-summary)
+  --no-strip            Disable stripping of import statements and directives
   --help                Show this help message
 
 Examples:
@@ -505,6 +615,15 @@ Examples:
   npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/merged
   npx nextcov merge coverage/unit coverage/integration --reporters html,lcov
 ```
+
+### Why Strip Directives?
+
+When merging unit/component test coverage with E2E test coverage, you may encounter mismatched statement counts for the same file. This happens because:
+
+- **Unit/component tests** (Vitest) see import statements and directives as executable statements
+- **E2E tests** (Next.js bundled code) don't include imports or directives in coverage data
+
+The `--no-strip` option is available if you want to preserve the original coverage data, but the default stripping behavior produces more accurate merged reports.
 
 ### Using the API (Advanced)
 
@@ -566,9 +685,23 @@ npx ts-node --esm scripts/merge-coverage.ts
 
 ### Playwright Integration (`nextcov/playwright`)
 
+#### `initCoverage(config?)`
+
+Initializes coverage collection. This is the recommended function to call in globalSetup. It handles both client-only and full (client + server) modes:
+
+- **Client-only mode** (`collectServer: false`): Just initializes logging/timing settings. No server connection is made.
+- **Full mode** (`collectServer: true`): Connects to the Next.js server via CDP to collect server-side coverage.
+
+```typescript
+import { initCoverage, loadNextcovConfig } from 'nextcov/playwright'
+
+const config = await loadNextcovConfig('./playwright.config.ts')
+await initCoverage(config)
+```
+
 #### `startServerCoverage(config?)`
 
-Starts server-side coverage collection. Call in globalSetup. Auto-detects dev mode vs production mode.
+Starts server-side coverage collection. Lower-level function called by `initCoverage` for full mode. Auto-detects dev mode vs production mode.
 
 ```typescript
 import { startServerCoverage, loadNextcovConfig } from 'nextcov/playwright'

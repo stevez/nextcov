@@ -652,6 +652,14 @@ export class CoverageMerger {
   }
 
   /**
+   * Load coverage from pre-parsed JSON data
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  loadCoverageData(data: any): CoverageMap {
+    return libCoverage.createCoverageMap(data)
+  }
+
+  /**
    * Get coverage summary
    */
   getSummary(coverageMap: CoverageMap): CoverageSummary {

@@ -51,6 +51,51 @@ export function resetCoverageState(): void {
   devModeCollector = null
 }
 
+/**
+ * Initialize coverage collection.
+ *
+ * This is the recommended function to call in globalSetup for all modes.
+ * It handles both client-only and full (client + server) coverage modes:
+ *
+ * - **Client-only mode** (`collectServer: false`): Just initializes logging/timing settings.
+ *   No server connection is made. Coverage is collected per-test via the Playwright fixture.
+ *
+ * - **Full mode** (`collectServer: true`): Connects to the Next.js server via CDP
+ *   to collect server-side coverage in addition to client coverage.
+ *
+ * @example
+ * ```typescript
+ * // In global-setup.ts
+ * import { initCoverage, loadNextcovConfig } from 'nextcov/playwright'
+ *
+ * export default async function globalSetup() {
+ *   const config = await loadNextcovConfig()
+ *   await initCoverage(config)
+ * }
+ * ```
+ */
+export async function initCoverage(
+  config?: NextcovConfig | ResolvedNextcovConfig
+): Promise<void> {
+  const resolved = config && 'cacheDir' in config
+    ? config as ResolvedNextcovConfig
+    : resolveNextcovConfig(config)
+
+  // Initialize logging and timing from config
+  setLogging(resolved.log)
+  setTiming(resolved.timing)
+
+  // For client-only mode, just log and return
+  if (!resolved.collectServer) {
+    console.log('📊 Coverage initialized (client-only mode)')
+    devModeCollector = null
+    return
+  }
+
+  // For full mode, delegate to startServerCoverage
+  await startServerCoverage(resolved)
+}
+
 export interface PlaywrightCoverageOptions {
   /** Project root directory (default: process.cwd()) */
   projectRoot?: string

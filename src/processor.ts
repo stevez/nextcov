@@ -102,7 +102,6 @@ export class CoverageProcessor {
 
     // Generate reports
     const summary = await this.reporter.generateReports(mergedMap)
-    this.reporter.printSummary(summary)
 
     return {
       coverageMap: mergedMap,

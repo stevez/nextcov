@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2024-12-25
+
+### Added
+
+- **`nextcov init` command** - Interactive scaffolding for nextcov setup
+  - Creates `global-setup.ts`, `global-teardown.ts`, and `test-fixtures.ts`
+  - Modifies `playwright.config.ts` with nextcov configuration
+  - Adds npm scripts (`dev:e2e`, `build:e2e`, `start:e2e`, `test:e2e`, `coverage:merge`) to `package.json`
+  - Modifies `next.config.ts` with E2E mode settings for source maps
+  - Options: `--client-only`, `--e2e-dir`, `--js`, `--force`, `-y` (skip prompts)
+
+- **Coverage mode selection in `nextcov init`** - Choose between Full and Client-only modes
+  - **Full mode**: Creates `global-setup.ts` with server coverage, `dev:e2e` uses `--inspect`
+  - **Client-only mode**: Creates `global-setup.ts` for client coverage, simpler `dev:e2e` script, `collectServer: false` in config
+
+- **`initCoverage()` function** - Unified entry point for globalSetup
+  - Works for both client-only and full (client + server) modes
+  - Replaces the confusing pattern of calling `startServerCoverage()` for client-only mode
+  - Example: `await initCoverage(config)` in global-setup.ts
+
+- **Vite support** - Client-only coverage for Vite applications
+  - Detects Vite source URLs (e.g., `http://localhost:5173/src/App.tsx`)
+  - Use `collectServer: false` in nextcov config for Vite apps
+  - Full example in README under "Vite Support" section
+
+- **`text-summary` in default reporters** - Both `nextcov init` templates and `nextcov merge` CLI now include `text-summary` reporter by default
+
+- **Component test coverage in merge script** - `coverage:merge` script now includes `coverage/component` directory
+  - Generated script: `nextcov merge coverage/unit coverage/component coverage/e2e -o coverage/merged`
+
+- **`--no-strip` option for `nextcov merge`** - Disable automatic stripping of import statements and directives
+  - By default, `merge` strips import statements and `'use client'`/`'use server'` directives for accurate merged coverage
+  - Use `--no-strip` to preserve original coverage data
+
+### Fixed
+
+- **Client-only mode in `nextcov init`** - Fixed several issues with client-only setup
+  - `dev:e2e` script now correctly uses `E2E_MODE=true` instead of `--inspect` flag
+  - Global teardown template includes correct comment for client-only mode
+  - Playwright config correctly sets `collectServer: false`
+
+- **Full mode (client + server) in `nextcov init`** - Fixed server coverage setup
+  - `start:local` script includes `NODE_V8_COVERAGE` for proper server coverage collection
+  - Webpack config properly handles `isServer` parameter for source map paths
+  - Added `devtoolModuleFilenameTemplate` for accurate server-side source mapping
+
+- **Config loading in CJS projects** - Fixed `loadNextcovConfig()` not loading config from `playwright.config.ts` in projects without `"type": "module"` in package.json
+  - In CJS projects, named exports like `export const nextcov = {...}` appear under `module.default.nextcov` instead of `module.nextcov`
+  - Now checks multiple locations: `module.nextcov`, `module.default?.nextcov`, and `actualConfig?.nextcov`
+
 ## [0.9.4] - 2024-12-24
 
 ### Added
