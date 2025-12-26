@@ -4,7 +4,6 @@ import {
   createDevModeExtractor,
   type ExtractedSourceMap,
 } from '../dev-mode-extractor.js'
-import { normalizeWebpackSourcePath } from '../constants.js'
 
 describe('DevModeSourceMapExtractor', () => {
   let extractor: DevModeSourceMapExtractor
@@ -17,31 +16,7 @@ describe('DevModeSourceMapExtractor', () => {
     vi.restoreAllMocks()
   })
 
-  describe('normalizeWebpackSourcePath', () => {
-    it('should remove webpack://_N_E/ prefix', () => {
-      expect(normalizeWebpackSourcePath('webpack://_N_E/src/app/page.tsx')).toBe('src/app/page.tsx')
-    })
-
-    it('should remove leading ./', () => {
-      expect(normalizeWebpackSourcePath('./src/lib/utils.ts')).toBe('src/lib/utils.ts')
-    })
-
-    it('should remove query string', () => {
-      expect(normalizeWebpackSourcePath('src/app/page.tsx?xxxx')).toBe('src/app/page.tsx')
-    })
-
-    it('should handle URL-encoded paths', () => {
-      expect(normalizeWebpackSourcePath('src/app/page%20name.tsx')).toBe('src/app/page name.tsx')
-    })
-
-    it('should handle combined prefixes', () => {
-      expect(normalizeWebpackSourcePath('webpack://_N_E/./src/app/page.tsx?hash')).toBe('src/app/page.tsx')
-    })
-
-    it('should return path unchanged if no prefix', () => {
-      expect(normalizeWebpackSourcePath('src/lib/utils.ts')).toBe('src/lib/utils.ts')
-    })
-  })
+  // Note: normalizeWebpackSourcePath tests are in src/parsers/__tests__/webpack.test.ts
 
   describe('isProjectScript', () => {
     it('should return true for webpack-internal src paths', () => {

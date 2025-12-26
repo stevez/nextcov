@@ -4,6 +4,18 @@ import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { CoverageConverter } from '../converter.js'
 import { SourceMapLoader } from '../sourcemap-loader.js'
+import {
+  removePhantomBranches,
+  fixFunctionDeclarationStatements,
+  fixEmptyStatementMaps,
+  fixSpuriousBranches,
+  findLogicalExpressionLines,
+} from '../converter/coverage-fixes.js'
+import {
+  sanitizeSourceMap,
+  getSourceRejectionReason,
+} from '../converter/sanitizer.js'
+import { toFileUrl } from '../parsers/url-utils.js'
 
 // Mock existsSync to return true for test paths with src/
 vi.mock('node:fs', async (importOriginal) => {
@@ -51,22 +63,22 @@ describe('CoverageConverter', () => {
 
   describe('toFileUrl', () => {
     it('should return file:// URL unchanged', () => {
-      const result = converter['toFileUrl']('file:///project/src/index.ts')
+      const result = toFileUrl('file:///project/src/index.ts')
       expect(result).toBe('file:///project/src/index.ts')
     })
 
     it('should convert Windows absolute path to file URL', () => {
-      const result = converter['toFileUrl']('C:\\project\\src\\index.ts')
+      const result = toFileUrl('C:\\project\\src\\index.ts')
       expect(result).toBe('file:///C:/project/src/index.ts')
     })
 
     it('should convert Unix absolute path to file URL', () => {
-      const result = converter['toFileUrl']('/project/src/index.ts')
+      const result = toFileUrl('/project/src/index.ts')
       expect(result).toBe('file:///project/src/index.ts')
     })
 
     it('should convert relative path to absolute file URL', () => {
-      const result = converter['toFileUrl']('src/index.ts')
+      const result = toFileUrl('src/index.ts')
       expect(result).toMatch(/^file:\/\//)
       expect(result).toContain('src/index.ts')
     })
@@ -103,42 +115,42 @@ describe('CoverageConverter', () => {
 
   describe('getSourceRejectionReason', () => {
     it('should reject empty source', () => {
-      expect(converter['getSourceRejectionReason']('', null)).toBe('empty/null source')
-      expect(converter['getSourceRejectionReason'](null, null)).toBe('empty/null source')
-      expect(converter['getSourceRejectionReason']('   ', null)).toBe('empty/null source')
+      expect(getSourceRejectionReason('', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('empty/null source', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))
+      expect(getSourceRejectionReason(null, null)).toBe('empty/null source', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))
+      expect(getSourceRejectionReason('   ', null)).toBe('empty/null source', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))
     })
 
     it('should reject webpack externals', () => {
-      expect(converter['getSourceRejectionReason']('external commonjs react', 'code')).toBe('webpack external')
-      expect(converter['getSourceRejectionReason']('external%20commonjs%20react', 'code')).toBe('webpack external')
+      expect(getSourceRejectionReason('external commonjs react', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('webpack external')
+      expect(getSourceRejectionReason('external%20commonjs%20react', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('webpack external')
     })
 
     it('should accept webpack queries with content in dev mode', () => {
       // Dev mode sources like webpack://app/src/file.ts?module are valid if they have content
-      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?module', 'code')).toBe(null)
+      expect(getSourceRejectionReason('webpack://app/src/file.ts?module', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe(null)
     })
 
     it('should reject webpack queries without content', () => {
-      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?module', null)).toBe('no sourcesContent')
+      expect(getSourceRejectionReason('webpack://app/src/file.ts?module', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('no sourcesContent')
     })
 
     it('should reject node_modules', () => {
-      expect(converter['getSourceRejectionReason']('node_modules/lodash/index.js', 'code')).toBe('node_modules')
-      expect(converter['getSourceRejectionReason']('webpack://app/node_modules/react/index.js', 'code')).toBe('node_modules')
+      expect(getSourceRejectionReason('node_modules/lodash/index.js', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('node_modules')
+      expect(getSourceRejectionReason('webpack://app/node_modules/react/index.js', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('node_modules')
     })
 
     it('should reject sources without src/', () => {
-      expect(converter['getSourceRejectionReason']('lib/utils.ts', 'code')).toContain('no src/ in path')
+      expect(getSourceRejectionReason('lib/utils.ts', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toContain('no src/ in path')
     })
 
     it('should reject sources without content', () => {
-      expect(converter['getSourceRejectionReason']('src/index.ts', null)).toBe('no sourcesContent')
-      expect(converter['getSourceRejectionReason']('src/index.ts', undefined)).toBe('no sourcesContent')
+      expect(getSourceRejectionReason('src/index.ts', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('no sourcesContent')
+      expect(getSourceRejectionReason('src/index.ts', undefined, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('no sourcesContent')
     })
 
     it('should accept valid source with src/ and content', () => {
-      expect(converter['getSourceRejectionReason']('src/index.ts', 'const x = 1')).toBe(null)
-      expect(converter['getSourceRejectionReason']('webpack://app/src/utils.ts', 'export const add = (a, b) => a + b')).toBe(null)
+      expect(getSourceRejectionReason('src/index.ts', 'const x = 1', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe(null)
+      expect(getSourceRejectionReason('webpack://app/src/utils.ts', 'export const add = (a, b) => a + b', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe(null)
     })
   })
 
@@ -218,7 +230,7 @@ describe('CoverageConverter', () => {
         const b = x && y;
         const c = a ?? b;
       `
-      const lines = converter['findLogicalExpressionLines'](code, 'test.ts')
+      const lines = findLogicalExpressionLines(code, 'test.ts')
 
       expect(lines.size).toBeGreaterThan(0)
     })
@@ -228,7 +240,7 @@ describe('CoverageConverter', () => {
         const a = 1 + 2;
         const b = 3 * 4;
       `
-      const lines = converter['findLogicalExpressionLines'](code, 'test.ts')
+      const lines = findLogicalExpressionLines(code, 'test.ts')
 
       expect(lines.size).toBe(0)
     })
@@ -238,7 +250,7 @@ describe('CoverageConverter', () => {
         interface Props { value: boolean }
         const result = props.value || defaultValue;
       `
-      const lines = converter['findLogicalExpressionLines'](code, 'test.tsx')
+      const lines = findLogicalExpressionLines(code, 'test.tsx')
 
       expect(lines.size).toBeGreaterThan(0)
     })
@@ -249,14 +261,14 @@ describe('CoverageConverter', () => {
           return <div>{isLoading || <Content />}</div>;
         };
       `
-      const lines = converter['findLogicalExpressionLines'](code, 'test.tsx')
+      const lines = findLogicalExpressionLines(code, 'test.tsx')
 
       expect(lines.size).toBeGreaterThan(0)
     })
 
     it('should return empty set for invalid code', () => {
       const code = 'this is not valid javascript {'
-      const lines = converter['findLogicalExpressionLines'](code, 'test.ts')
+      const lines = findLogicalExpressionLines(code, 'test.ts')
 
       expect(lines.size).toBe(0)
     })
@@ -271,7 +283,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
 
       expect(result).toBeUndefined()
     })
@@ -285,7 +301,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
 
       expect(result).toBeUndefined()
     })
@@ -299,7 +319,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
 
       expect(result).toBeDefined()
       expect(result!.sources[0]).toBe('src/index.ts')
@@ -446,13 +470,13 @@ describe('CoverageConverter', () => {
   describe('findLogicalExpressionLines - edge cases', () => {
     it('should find nullish coalescing operator', () => {
       const code = 'const x = value ?? defaultValue;'
-      const lines = converter['findLogicalExpressionLines'](code, 'test.ts')
+      const lines = findLogicalExpressionLines(code, 'test.ts')
       expect(lines.size).toBeGreaterThan(0)
     })
 
     it('should handle nested logical expressions', () => {
       const code = 'const x = (a || b) && (c || d);'
-      const lines = converter['findLogicalExpressionLines'](code, 'test.ts')
+      const lines = findLogicalExpressionLines(code, 'test.ts')
       expect(lines.size).toBeGreaterThan(0)
     })
 
@@ -465,7 +489,7 @@ describe('CoverageConverter', () => {
           }
         }
       `
-      const lines = converter['findLogicalExpressionLines'](code, 'test.ts')
+      const lines = findLogicalExpressionLines(code, 'test.ts')
       expect(lines.size).toBeGreaterThan(0)
     })
   })
@@ -473,19 +497,19 @@ describe('CoverageConverter', () => {
   describe('getSourceRejectionReason - edge cases', () => {
     it('should accept sources with webpack queries when they have content', () => {
       // Dev mode sources with queries are valid if they have content
-      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?abc=123', 'code')).toBe(null)
+      expect(getSourceRejectionReason('webpack://app/src/file.ts?abc=123', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe(null)
     })
 
     it('should reject sources with webpack queries without content', () => {
-      expect(converter['getSourceRejectionReason']('webpack://app/src/file.ts?abc=123', null)).toBe('no sourcesContent')
+      expect(getSourceRejectionReason('webpack://app/src/file.ts?abc=123', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('no sourcesContent')
     })
 
     it('should accept sources with backslash paths', () => {
-      expect(converter['getSourceRejectionReason']('webpack://app\\src\\file.ts', 'const x = 1')).toBe(null)
+      expect(getSourceRejectionReason('webpack://app\\src\\file.ts', 'const x = 1', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe(null)
     })
 
     it('should reject absolute Windows paths outside project', () => {
-      expect(converter['getSourceRejectionReason']('C:/other/project/src/file.ts', 'code')).toContain('Windows path not in project')
+      expect(getSourceRejectionReason('C:/other/project/src/file.ts', 'code', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toContain('Windows path not in project')
     })
   })
 
@@ -556,7 +580,9 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixEmptyStatementMaps'](coverageMap)
+      await fixEmptyStatementMaps(coverageMap, {
+        createEmptyCoverage: (filePath, sourceCode) => testConverter['createEmptyCoverage'](filePath, sourceCode)
+      })
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       expect(Object.keys(data.branchMap).length).toBeGreaterThan(0)
@@ -565,12 +591,10 @@ describe('CoverageConverter', () => {
 
   describe('fixSpuriousBranches', () => {
     let testDir: string
-    let testConverter: CoverageConverter
 
     beforeEach(async () => {
       testDir = join(tmpdir(), `fix-spurious-test-${Date.now()}`)
       await fs.mkdir(testDir, { recursive: true })
-      testConverter = new CoverageConverter(testDir, new SourceMapLoader(testDir))
     })
 
     afterEach(async () => {
@@ -607,7 +631,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixSpuriousBranches'](coverageMap)
+      await fixSpuriousBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Spurious binary-expr branch should be removed
@@ -640,7 +664,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixSpuriousBranches'](coverageMap)
+      await fixSpuriousBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Real binary-expr branch should be kept
@@ -676,7 +700,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['removePhantomBranches'](coverageMap)
+      removePhantomBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Phantom branch should be removed
@@ -711,7 +735,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['removePhantomBranches'](coverageMap)
+      removePhantomBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Branch on line 10 should be kept
@@ -745,7 +769,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['removePhantomBranches'](coverageMap)
+      removePhantomBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Branch with non-zero column should be kept
@@ -779,7 +803,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['removePhantomBranches'](coverageMap)
+      removePhantomBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Non-if branch types should be kept
@@ -849,7 +873,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['removePhantomBranches'](coverageMap)
+      removePhantomBranches(coverageMap)
 
       // file1: phantom removed, real branch kept
       const data1 = coverageMap.fileCoverageFor(file1).toJSON()
@@ -889,7 +913,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['removePhantomBranches'](coverageMap)
+      removePhantomBranches(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Branch with actual span should be kept
@@ -968,7 +992,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
       expect(result).toBeUndefined()
     })
 
@@ -981,7 +1009,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
       expect(result).toBeUndefined()
     })
 
@@ -994,7 +1026,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
       expect(result).toBeDefined()
       expect(result!.sources[0]).toContain('src')
     })
@@ -1008,7 +1044,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
       // Should filter out the external source
       if (result) {
         expect(result.sources.length).toBeLessThanOrEqual(sourceMap.sources.length)
@@ -1024,7 +1064,11 @@ describe('CoverageConverter', () => {
         names: [],
       }
 
-      const result = converter['sanitizeSourceMap'](sourceMap)
+      const result = sanitizeSourceMap(sourceMap, {
+        projectRoot: converter['projectRoot'],
+        sourceMapLoader: converter['sourceMapLoader'],
+        excludePatterns: []
+      })
       // Should return undefined if decode fails
       expect(result === undefined || result !== undefined).toBe(true)
     })
@@ -1113,7 +1157,9 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixEmptyStatementMaps'](coverageMap)
+      await fixEmptyStatementMaps(coverageMap, {
+        createEmptyCoverage: (filePath, sourceCode) => testConverter['createEmptyCoverage'](filePath, sourceCode)
+      })
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Should have added statements and branch
@@ -1145,7 +1191,9 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixEmptyStatementMaps'](coverageMap)
+      await fixEmptyStatementMaps(coverageMap, {
+        createEmptyCoverage: (filePath, sourceCode) => testConverter['createEmptyCoverage'](filePath, sourceCode)
+      })
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Statements should be marked as covered since function was executed
@@ -1170,7 +1218,9 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixEmptyStatementMaps'](coverageMap)
+      await fixEmptyStatementMaps(coverageMap, {
+        createEmptyCoverage: (filePath, sourceCode) => testConverter['createEmptyCoverage'](filePath, sourceCode)
+      })
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Should have added implicit branch
@@ -1196,7 +1246,9 @@ describe('CoverageConverter', () => {
         },
       })
 
-      await testConverter['fixEmptyStatementMaps'](coverageMap)
+      await fixEmptyStatementMaps(coverageMap, {
+        createEmptyCoverage: (filePath, sourceCode) => testConverter['createEmptyCoverage'](filePath, sourceCode)
+      })
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Should have added implicit branch
@@ -1370,7 +1422,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['fixFunctionDeclarationStatements'](coverageMap)
+      fixFunctionDeclarationStatements(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Statement should now have the function's call count
@@ -1405,7 +1457,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['fixFunctionDeclarationStatements'](coverageMap)
+      fixFunctionDeclarationStatements(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Statement should now have the function's call count
@@ -1437,7 +1489,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['fixFunctionDeclarationStatements'](coverageMap)
+      fixFunctionDeclarationStatements(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Statement should keep its original count (not overwritten)
@@ -1469,7 +1521,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['fixFunctionDeclarationStatements'](coverageMap)
+      fixFunctionDeclarationStatements(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Statement should remain 0 since function wasn't called
@@ -1501,7 +1553,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['fixFunctionDeclarationStatements'](coverageMap)
+      fixFunctionDeclarationStatements(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       // Statement should remain 0 since it's on a different line
@@ -1547,7 +1599,7 @@ describe('CoverageConverter', () => {
         },
       })
 
-      converter['fixFunctionDeclarationStatements'](coverageMap)
+      fixFunctionDeclarationStatements(coverageMap)
 
       const data = coverageMap.fileCoverageFor(testFile).toJSON()
       expect(data.s['0']).toBe(1) // Fixed from func1

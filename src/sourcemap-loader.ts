@@ -12,7 +12,11 @@ import { fileURLToPath } from 'node:url'
 import convertSourceMap from 'convert-source-map'
 import type { SourceMapData, SourceFile, V8Coverage } from './types.js'
 import { DEFAULT_NEXTCOV_CONFIG, isPathWithinBase } from './config.js'
-import { FILE_PROTOCOL, extractNextPath, SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN, normalizeWebpackSourcePath, SOURCE_CACHE_MAX_SIZE } from './constants.js'
+import { extractNextPath } from './parsers/nextjs.js'
+import { normalizeWebpackSourcePath } from './parsers/webpack.js'
+import { FILE_PROTOCOL } from './parsers/index.js'
+import { SOURCE_MAPPING_URL_PATTERN, INLINE_SOURCE_MAP_BASE64_PATTERN, DATA_URL_BASE64_PATTERN } from './parsers/sourcemap.js'
+import { SOURCE_CACHE_MAX_SIZE } from './constants.js'
 import { log, formatError } from './logger.js'
 
 export class SourceMapLoader {

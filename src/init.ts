@@ -628,10 +628,10 @@ function modifyNextConfig(configPath: string): { modified: boolean; path: string
     const moduleExportsArrowPattern = /(module\.exports\s*=\s*\([\s\S]*?\)\s*=>\s*\{)/
     const moduleExportsFuncPattern = /(module\.exports\s*=\s*function\s*\w*\s*\([^)]*\)\s*\{)/
 
-    let match = content.match(arrowFuncPattern) ||
-                content.match(regularFuncPattern) ||
-                content.match(moduleExportsArrowPattern) ||
-                content.match(moduleExportsFuncPattern)
+    const match = content.match(arrowFuncPattern) ||
+                  content.match(regularFuncPattern) ||
+                  content.match(moduleExportsArrowPattern) ||
+                  content.match(moduleExportsFuncPattern)
 
     if (match && match.index !== undefined) {
       const insertPos = match.index + match[0].length
