@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.1] - 2024-12-26
+
+### Fixed
+
+- **`nextcov init` now uses pinned dependency versions** - cross-env, start-server-and-test, and concurrently now use specific version ranges (`^7.0.3`, `^2.0.8`, `^9.1.0`) instead of `"latest"` for reproducible builds
+
 ## [0.10.0] - 2024-12-25
 
 ### Added

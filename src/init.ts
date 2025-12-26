@@ -811,19 +811,19 @@ function modifyPackageJson(
   if (isNextJs) {
     // Add cross-env as devDependency if not present (needed for all e2e scripts)
     if (!devDeps['cross-env']) {
-      devDeps['cross-env'] = 'latest'
+      devDeps['cross-env'] = '^7.0.3'
       needsInstall = true
     }
 
     // Add start-server-and-test as devDependency if not present (needed for test:e2e script)
     if (!devDeps['start-server-and-test']) {
-      devDeps['start-server-and-test'] = 'latest'
+      devDeps['start-server-and-test'] = '^2.0.8'
       needsInstall = true
     }
 
     // Add concurrently as devDependency if not present (needed for start:e2e script)
     if (!devDeps['concurrently']) {
-      devDeps['concurrently'] = 'latest'
+      devDeps['concurrently'] = '^9.1.0'
       needsInstall = true
     }
 
