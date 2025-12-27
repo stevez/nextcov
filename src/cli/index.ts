@@ -17,7 +17,7 @@ Usage:
 Commands:
   init        Initialize nextcov in your project
   merge       Merge multiple coverage reports into one
-  check       Check codebase for V8 coverage blind spots
+  check       Check project config and code for V8 coverage issues
 
 Options:
   --help      Show this help message
@@ -26,7 +26,9 @@ Examples:
   npx nextcov init
   npx nextcov merge coverage/unit coverage/integration
   npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/all
-  npx nextcov check src/
+  npx nextcov check              # config only
+  npx nextcov check src/         # config + source code
+  npx nextcov check src/ --skip-config  # source code only
 `
 
 export async function main(): Promise<number> {
@@ -92,6 +94,7 @@ async function runCheck(args: string[]): Promise<number> {
     verbose: args.includes('--verbose'),
     json: args.includes('--json'),
     ignorePatterns: args.includes('--ignore-patterns'),
+    skipConfig: args.includes('--skip-config'),
   }
 
   // Get paths (anything that's not a flag)
