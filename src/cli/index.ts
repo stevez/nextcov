@@ -17,6 +17,7 @@ Usage:
 Commands:
   init        Initialize nextcov in your project
   merge       Merge multiple coverage reports into one
+  check       Check codebase for V8 coverage blind spots
 
 Options:
   --help      Show this help message
@@ -25,6 +26,7 @@ Examples:
   npx nextcov init
   npx nextcov merge coverage/unit coverage/integration
   npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/all
+  npx nextcov check src/
 `
 
 export async function main(): Promise<number> {
@@ -41,6 +43,8 @@ export async function main(): Promise<number> {
     return await runInit(args.slice(1))
   } else if (command === 'merge') {
     return await runMerge(args.slice(1))
+  } else if (command === 'check') {
+    return await runCheck(args.slice(1))
   } else {
     console.error(`Unknown command: ${command}`)
     console.log(HELP)
@@ -76,6 +80,24 @@ async function runMerge(args: string[]): Promise<number> {
   // Dynamic import to avoid loading merge dependencies until needed
   const { runMerge: executeRunMerge } = await import('./commands/merge.js')
   return await executeRunMerge(args)
+}
+
+async function runCheck(args: string[]): Promise<number> {
+  // Dynamic import to avoid loading check dependencies until needed
+  const { check } = await import('./commands/check.js')
+  type CheckOptions = import('./commands/check.js').CheckOptions
+
+  // Parse basic flags manually (for now, simple implementation)
+  const options: CheckOptions = {
+    verbose: args.includes('--verbose'),
+    json: args.includes('--json'),
+    ignorePatterns: args.includes('--ignore-patterns'),
+  }
+
+  // Get paths (anything that's not a flag)
+  const paths = args.filter(arg => !arg.startsWith('--'))
+
+  return await check(paths, options)
 }
 
 // Only run main() when executed directly, not when imported for testing

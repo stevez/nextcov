@@ -2,6 +2,68 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2024-12-26
+
+### Added
+
+- **New `check` CLI command** - Scan codebase for V8 coverage blind spots in JSX code
+  - Detects JSX ternary operators: `{cond ? <A /> : <B />}` that V8 cannot track for branch coverage
+  - Detects JSX logical AND operators: `{cond && <Component />}` that V8 cannot track for branch coverage
+  - Only flags patterns inside JSX expression containers (`{...}`), not variable assignments
+  - Usage: `npx nextcov check [paths...] [options]`
+  - Options:
+    - `--verbose` - Show code snippets in console output
+    - `--json` - Output results as JSON
+    - `--ignore-patterns` - Exit with 0 even if issues found (for CI warnings)
+  - Returns exit code 0 (clean), 1 (issues found), or 2 (error)
+  - Scans `.js`, `.jsx`, `.ts`, `.tsx` files
+  - Automatically ignores `node_modules/`, `.next/`, `dist/`, `build/`, `.git/`, `coverage/`
+  - Example: `npx nextcov check src/ --verbose`
+
+- **JSX Pattern Detector** - AST-based detection using Babel parser
+  - Uses `@babel/parser` to parse JSX/TypeScript code into AST
+  - Uses `@babel/traverse` to walk AST and find problematic patterns
+  - Gracefully handles syntax errors and non-JSX files
+  - Tracks parent nodes to distinguish JSX expression containers from variable assignments
+  - Extracts code snippets for verbose output
+  - Comprehensive test suite with 18 tests (92.68% statement coverage)
+
+- **File Scanner** - Glob-based directory scanning
+  - Scans directories recursively for JS/TS files
+  - Supports specific file paths or directory patterns
+  - Custom ignore patterns support
+  - Relative file path output
+  - Comprehensive test suite with 13 tests (95% statement coverage)
+
+- **Console Reporter** - Formatted output for scan results
+  - Human-readable console output with file:line:column locations
+  - JSON output mode for programmatic consumption
+  - Verbose mode with code snippets
+  - Issue grouping by file
+  - Help text with remediation guidance
+  - Comprehensive test suite with 13 tests (100% coverage)
+
+- **Dependencies** - Added for JSX pattern detection
+  - `@babel/traverse@^7.28.5` - AST traversal with visitor pattern
+  - `@types/babel__traverse@^7.28.0` - TypeScript type definitions
+
+### Changed
+
+- **CLI bundle size increased** - From 74 KB to 80.13 KB (~8% increase)
+  - Babel dependencies added for JSX pattern detection (~6 KB impact)
+  - Acceptable trade-off for check command functionality
+
+### Tests
+
+- **Improved test coverage** - Added 56 new tests across 4 test files
+  - Total tests: 742 passing (up from 686)
+  - New test files:
+    - `src/linter/detectors/__tests__/jsx-patterns.test.ts` (18 tests)
+    - `src/linter/__tests__/scanner.test.ts` (13 tests)
+    - `src/linter/__tests__/reporter.test.ts` (13 tests)
+    - `src/cli/commands/__tests__/check.test.ts` (12 tests)
+  - Linter module coverage: 98.46% statement, 100% branch, 100% function
+
 ## [0.11.2] - 2024-12-26
 
 ### Changed
