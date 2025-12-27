@@ -2,6 +2,63 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.1] - 2024-12-26
+
+### Changed
+
+- **Comprehensive codebase reorganization** - Restructured entire codebase into focused domain folders for better maintainability and scalability
+  - **Phase 1** (v0.11.0): Split `converter.ts` and `constants.ts` into modular `converter/` and `parsers/` folders
+  - **Phase 2**: Organized utilities into `utils/` folder
+    - Moved `config.ts`, `logger.ts`, `constants.ts`, `dev-mode-extractor.ts` to `src/utils/`
+    - Created `utils/index.ts` for centralized exports
+  - **Phase 3**: Organized CLI into `cli/` folder structure
+    - Split `cli.ts` into `cli/commands/merge.ts` and `cli/index.ts`
+    - Moved `init.ts` to `cli/commands/init.ts`
+    - Created `cli/index.ts` as main CLI entry point
+  - **Phase 4**: Organized core processing modules into `core/` folder
+    - Moved `processor.ts`, `v8-reader.ts`, `reporter.ts`, `sourcemap-loader.ts` to `src/core/`
+    - Created `core/index.ts` for centralized exports
+    - Removed unnecessary `converter.ts` re-export layer
+  - **Phase 5**: Organized worker modules into `worker/` folder
+    - Moved `ast-worker.ts` and `worker-pool.ts` to `src/worker/`
+    - Created `worker/index.ts` for centralized exports
+    - Updated worker path resolution for new `dist/worker/` build location
+    - Updated tsup config to output workers to `dist/worker/`
+  - **Phase 6**: Organized merger module into `merger/` folder
+    - Split `merger.ts` (968 lines) into 3 focused files:
+      - `merger/core.ts` (842 lines) - CoverageMerger class and merging logic
+      - `merger/printer.ts` (65 lines) - Console output formatting
+      - `merger/utils.ts` (86 lines) - Helper functions and lookups
+    - Created `merger/index.ts` for centralized exports
+
+- **Refactored imports to use TypeScript path aliases** - Replaced relative imports (`../../`) with clean `@/` prefix
+  - Configured TypeScript path aliases in [tsconfig.json](tsconfig.json#L24-L35) with `@/*` mappings
+  - Added [tsc-alias](https://www.npmjs.com/package/tsc-alias) to build script for path resolution in compiled JavaScript
+  - Updated [vitest.config.ts](vitest.config.ts#L6-L17) with resolve.alias configuration
+  - Migrated 35+ files across all modules (cli, core, converter, merger, utils, worker, collector, parsers)
+  - Updated dynamic imports and vi.mock paths in CLI commands and tests
+
+### Internal
+
+- **Build system enhancement** - Added tsc-alias step after tsup compilation
+  - Build script now: `tsup && tsc-alias` to resolve path aliases in output
+- **TypeScript error fixes** - Fixed type inference issues in test files
+  - Added `FileCoverageData` type casts to `.toJSON()` calls in coverage tests
+  - Fixed incorrect test assertions with extra parameters
+  - Removed non-existent exports (`setVerbose`, `WorkerResult`)
+- **New folder structure** - Codebase now organized into 9 domain-focused folders:
+  - `cli/` - Command-line interface and commands
+  - `core/` - Core processing modules (processor, reporter, reader, source maps)
+  - `utils/` - Shared utilities (config, logger, constants, extractors)
+  - `worker/` - Worker thread parallelization
+  - `merger/` - Coverage merging logic
+  - `converter/` - V8-to-Istanbul conversion
+  - `parsers/` - Bundler-specific URL parsers
+  - `collector/` - Coverage collection (CDP, dev mode, production)
+  - `playwright/` - Playwright test fixtures
+- All 686 tests passing with full TypeScript type checking
+- No API changes - this is purely an internal code organization improvement
+
 ## [0.11.0] - 2024-12-26
 
 ### Changed

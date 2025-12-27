@@ -1,33 +1,11 @@
 /**
- * nextcov CLI
+ * nextcov merge command
  *
- * Commands:
- *   init  - Initialize nextcov in your project
- *   merge - Merge multiple coverage reports into one
+ * Merges multiple coverage reports into one.
  */
 
 import { resolve } from 'path'
 import { existsSync, readFileSync } from 'fs'
-import { fileURLToPath } from 'url'
-
-export const HELP = `
-nextcov - Coverage collection for Next.js + Playwright
-
-Usage:
-  npx nextcov <command> [options]
-
-Commands:
-  init        Initialize nextcov in your project
-  merge       Merge multiple coverage reports into one
-
-Options:
-  --help      Show this help message
-
-Examples:
-  npx nextcov init
-  npx nextcov merge coverage/unit coverage/integration
-  npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/all
-`
 
 export const MERGE_HELP = `
 Usage: npx nextcov merge <dirs...> [options]
@@ -52,27 +30,6 @@ Examples:
   npx nextcov merge coverage/unit coverage/e2e coverage/browser -o coverage/merged
   npx nextcov merge coverage/unit coverage/integration --reporters html,lcov
 `
-
-async function main(): Promise<number> {
-  const args = process.argv.slice(2)
-
-  if (args.length === 0 || (args[0] === '--help' || args[0] === '-h')) {
-    console.log(HELP)
-    return 0
-  }
-
-  const command = args[0]
-
-  if (command === 'init') {
-    return await runInit(args.slice(1))
-  } else if (command === 'merge') {
-    return await runMerge(args.slice(1))
-  } else {
-    console.error(`Unknown command: ${command}`)
-    console.log(HELP)
-    return 1
-  }
-}
 
 export interface MergeOptions {
   inputs: string[]
@@ -268,8 +225,8 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
 
   try {
     // Dynamic import to avoid loading heavy dependencies until needed
-    const { IstanbulReporter } = await import('./reporter.js')
-    const { createMerger } = await import('./merger.js')
+    const { IstanbulReporter } = await import('@/core/reporter.js')
+    const { createMerger } = await import('@/merger/index.js')
 
     // Use nextcov's smart merger which handles mismatched statement maps
     const merger = createMerger({ applyFixes: true })
@@ -331,31 +288,10 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
   }
 }
 
-async function runInit(args: string[]): Promise<number> {
-  // Dynamic import to avoid loading init dependencies until needed
-  const { parseInitArgs, executeInit, INIT_HELP } = await import('./init.js')
-
-  const result = parseInitArgs(args)
-
-  if (result.showHelp) {
-    console.log(INIT_HELP)
-    if (result.error) {
-      console.error(result.error)
-      return 1
-    }
-    return 0
-  }
-
-  if (result.error) {
-    console.error(result.error)
-    return 1
-  }
-
-  await executeInit(result.options!)
-  return 0
-}
-
-async function runMerge(args: string[]): Promise<number> {
+/**
+ * Run the merge command
+ */
+export async function runMerge(args: string[]): Promise<number> {
   const result = parseMergeArgs(args)
 
   if (result.showHelp) {
@@ -380,32 +316,4 @@ async function runMerge(args: string[]): Promise<number> {
   }
 
   return 0
-}
-
-// Only run main() when executed directly, not when imported for testing
-// Use fileURLToPath for cross-platform compatibility
-const currentFile = fileURLToPath(import.meta.url)
-const executedFile = process.argv[1]
-
-// Normalize paths for comparison (handles Windows backslashes)
-const normalizedCurrent = currentFile.replace(/\\/g, '/')
-const normalizedExecuted = executedFile?.replace(/\\/g, '/')
-
-const isMainModule = normalizedCurrent === normalizedExecuted
-  || normalizedExecuted?.endsWith('/cli.js')
-  || normalizedExecuted?.endsWith('/cli.ts')
-  || normalizedExecuted?.endsWith('/nextcov')  // npm bin symlink name
-
-// Use process.exitCode instead of process.exit() to allow Node to exit naturally
-// after all I/O operations complete. This fixes stdout buffering issues in CI
-// environments where npx pipes output through a child process.
-if (isMainModule) {
-  main()
-    .then((code) => {
-      process.exitCode = code
-    })
-    .catch((error) => {
-      console.error('Fatal error:', error)
-      process.exitCode = 1
-    })
 }

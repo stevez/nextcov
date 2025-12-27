@@ -12,7 +12,7 @@ import {
   DEFAULT_REPORTERS,
   DEFAULT_WATERMARKS,
   COVERAGE_FINAL_JSON,
-} from '../config.js'
+} from '../utils/config.js'
 
 describe('config', () => {
   beforeEach(() => {

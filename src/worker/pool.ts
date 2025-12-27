@@ -49,14 +49,14 @@ function findWorkerPath(): string {
     return sameDirPath
   }
 
-  // Try parent directory (for bundled code in dist/playwright/)
-  const parentDirPath = join(__dirname, '..', 'ast-worker.js')
-  if (existsSync(parentDirPath)) {
-    return parentDirPath
+  // Try worker directory in parent (for bundled code in dist/playwright/)
+  const parentWorkerPath = join(__dirname, '..', 'worker', 'ast-worker.js')
+  if (existsSync(parentWorkerPath)) {
+    return parentWorkerPath
   }
 
-  // Try dist/ folder (for vitest running from src/)
-  const distPath = join(__dirname, '..', 'dist', 'ast-worker.js')
+  // Try dist/worker/ folder (for vitest running from src/)
+  const distPath = join(__dirname, '..', 'dist', 'worker', 'ast-worker.js')
   if (existsSync(distPath)) {
     return distPath
   }

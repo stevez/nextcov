@@ -9,8 +9,8 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { mergeProcessCovs } from '@bcoe/v8-coverage'
-import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, EntryFilter } from './types.js'
-import { safeJsonParse, warn } from './logger.js'
+import type { V8Coverage, V8ScriptCoverage, DevModeV8ScriptCoverage, EntryFilter } from '@/types.js'
+import { safeJsonParse, warn } from '@/utils/logger.js'
 
 const DEFAULT_EXCLUDE_PATTERNS = [
   '/node_modules/',

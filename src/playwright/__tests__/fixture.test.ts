@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { Page, TestInfo } from '@playwright/test'
 
 // Mock the logger module
-vi.mock('../../logger.js', () => ({
+vi.mock('../../utils/logger.js', () => ({
   log: vi.fn(),
   setLogging: vi.fn(),
   setTiming: vi.fn(),
@@ -85,7 +85,7 @@ vi.mock('../../collector/index.js', () => ({
   DevModeServerCollector: MockDevModeServerCollector,
 }))
 
-vi.mock('../../processor.js', () => ({
+vi.mock('../../core/processor.js', () => ({
   CoverageProcessor: MockCoverageProcessor,
 }))
 
@@ -119,7 +119,7 @@ describe('playwright integration', () => {
     it('should return null when no coverage is collected', async () => {
       const { finalizeCoverage } = await import('../index.js')
       const { readAllClientCoverage } = await import('../../collector/index.js')
-      const { log } = await import('../../logger.js')
+      const { log } = await import('../../utils/logger.js')
 
       // V8 collector returns empty by default
       mockV8CollectorCollectReturn = []
@@ -365,7 +365,7 @@ describe('playwright integration', () => {
 
     it('should handle warmup request failure gracefully', async () => {
       const { startServerCoverage } = await import('../fixture.js')
-      const { log } = await import('../../logger.js')
+      const { log } = await import('../../utils/logger.js')
 
       // Configure dev mode collector to succeed connection
       mockDevModeCollectorConnectReturn = true
@@ -381,7 +381,7 @@ describe('playwright integration', () => {
 
     it('should log warning when webpack is not ready', async () => {
       const { startServerCoverage } = await import('../fixture.js')
-      const { log } = await import('../../logger.js')
+      const { log } = await import('../../utils/logger.js')
 
       // Configure dev mode collector with webpack not ready
       mockDevModeCollectorConnectReturn = true
@@ -423,7 +423,7 @@ describe('playwright integration', () => {
   describe('dev mode finalizeCoverage', () => {
     it('should use dev mode flow when devModeCollector is active', async () => {
       const { startServerCoverage, finalizeCoverage } = await import('../fixture.js')
-      const { log } = await import('../../logger.js')
+      const { log } = await import('../../utils/logger.js')
 
       // Configure dev mode collector to succeed and return coverage
       mockDevModeCollectorConnectReturn = true
@@ -593,7 +593,7 @@ describe('playwright integration', () => {
 
     it('should return null when no client coverage with collectServer false', async () => {
       const { finalizeCoverage } = await import('../index.js')
-      const { log } = await import('../../logger.js')
+      const { log } = await import('../../utils/logger.js')
 
       // No client coverage (default mock returns empty array)
       mockClientCollectorReadReturn = []

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { processEntry, WorkerInput } from '../ast-worker.js'
+import { processEntry, WorkerInput } from '../worker/ast-worker.js'
 
 describe('ast-worker', () => {
   describe('processEntry', () => {

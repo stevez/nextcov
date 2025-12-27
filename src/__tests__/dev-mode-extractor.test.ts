@@ -3,7 +3,7 @@ import {
   DevModeSourceMapExtractor,
   createDevModeExtractor,
   type ExtractedSourceMap,
-} from '../dev-mode-extractor.js'
+} from '../utils/dev-mode-extractor.js'
 
 describe('DevModeSourceMapExtractor', () => {
   let extractor: DevModeSourceMapExtractor

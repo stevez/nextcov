@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { join } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { CoverageConverter } from '../converter.js'
-import { SourceMapLoader } from '../sourcemap-loader.js'
+import { CoverageConverter } from '../converter/index.js'
+import { SourceMapLoader } from '../core/sourcemap-loader.js'
 import {
   removePhantomBranches,
   fixFunctionDeclarationStatements,
@@ -115,9 +115,9 @@ describe('CoverageConverter', () => {
 
   describe('getSourceRejectionReason', () => {
     it('should reject empty source', () => {
-      expect(getSourceRejectionReason('', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('empty/null source', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))
-      expect(getSourceRejectionReason(null, null)).toBe('empty/null source', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))
-      expect(getSourceRejectionReason('   ', null)).toBe('empty/null source', projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))
+      expect(getSourceRejectionReason('', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('empty/null source')
+      expect(getSourceRejectionReason(null, null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('empty/null source')
+      expect(getSourceRejectionReason('   ', null, projectRoot, (p) => sourceMapLoader.normalizeSourcePath(p))).toBe('empty/null source')
     })
 
     it('should reject webpack externals', () => {

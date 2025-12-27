@@ -12,9 +12,9 @@ import libCoverage from 'istanbul-lib-coverage'
 import libReport from 'istanbul-lib-report'
 import reports from 'istanbul-reports'
 import type { CoverageMap } from 'istanbul-lib-coverage'
-import type { ReporterType, Watermarks, CoverageSummary, CoverageMetric } from './types.js'
-import { DEFAULT_WATERMARKS, DEFAULT_REPORTERS, COVERAGE_FINAL_JSON } from './config.js'
-import { log, formatError } from './logger.js'
+import type { ReporterType, Watermarks, CoverageSummary, CoverageMetric } from '@/types.js'
+import { DEFAULT_WATERMARKS, DEFAULT_REPORTERS, COVERAGE_FINAL_JSON } from '@/utils/config.js'
+import { log, formatError } from '@/utils/logger.js'
 
 export class IstanbulReporter {
   private outputDir: string

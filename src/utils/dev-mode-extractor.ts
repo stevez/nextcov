@@ -9,19 +9,19 @@
  * eval("...code...//# sourceMappingURL=data:application/json;charset=utf-8;base64,<base64>")
  */
 
-import type { SourceMapData } from './types.js'
+import type { SourceMapData } from '@/types.js'
 import {
   WEBPACK_INTERNAL_MODULE_PATTERN,
   isWebpackUrl,
   containsSourceRoot,
   normalizeWebpackSourcePath,
-} from './parsers/webpack.js'
-import { NEXTJS_CHUNK_PATTERN, COMMON_DEV_CHUNKS } from './parsers/nextjs.js'
+} from '@/parsers/webpack.js'
+import { NEXTJS_CHUNK_PATTERN, COMMON_DEV_CHUNKS } from '@/parsers/nextjs.js'
 import {
   SOURCE_MAP_LOOKBACK_LIMIT,
   INLINE_SOURCE_MAP_PATTERN,
   INLINE_SOURCE_MAP_PATTERN_GLOBAL,
-} from './parsers/sourcemap.js'
+} from '@/parsers/sourcemap.js'
 import { SOURCE_MAP_CACHE_MAX_SIZE } from './constants.js'
 import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from './config.js'
 import { log, formatError } from './logger.js'

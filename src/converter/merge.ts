@@ -5,8 +5,8 @@
  * When the same chunk is visited by multiple tests, we merge execution counts.
  */
 
-import type { V8ScriptCoverage } from '../types.js'
-import { log, createTimer } from '../logger.js'
+import type { V8ScriptCoverage } from '@/types.js'
+import { log, createTimer } from '@/utils/logger.js'
 
 /**
  * Normalize URL for merging by stripping query parameters.

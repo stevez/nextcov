@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
-import { SourceMapLoader } from '../sourcemap-loader.js'
+import { SourceMapLoader } from '../core/sourcemap-loader.js'
 
 const isWindows = process.platform === 'win32'
 const projectRoot = isWindows ? 'C:/project' : '/project'

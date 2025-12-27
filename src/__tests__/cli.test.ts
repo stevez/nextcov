@@ -2,11 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { existsSync } from 'fs'
 import {
   parseMergeArgs,
-  HELP,
   MERGE_HELP,
   validateInputDirectories,
   executeMerge,
-} from '../cli.js'
+} from '../cli/commands/merge.js'
 
 // Mock fs module but keep readFileSync for integration tests
 vi.mock('fs', async (importOriginal) => {
@@ -29,32 +28,31 @@ const mockMerge = vi.fn().mockResolvedValue({
 })
 
 // Mock reporter and merger modules with class syntax
-vi.mock('../reporter.js', () => ({
+vi.mock('../core/reporter.js', () => ({
   IstanbulReporter: class MockIstanbulReporter {
     constructor() {}
     generateReports = mockGenerateReports
   },
 }))
 
-vi.mock('../merger.js', () => ({
+vi.mock('../merger/index.js', () => ({
   createMerger: () => ({
     loadCoverageJson: mockLoadCoverageJson,
     merge: mockMerge,
   }),
 }))
 
-describe('CLI', () => {
-  describe('HELP constant', () => {
+describe('CLI merge command', () => {
+  describe('MERGE_HELP constant', () => {
     it('should contain usage information', () => {
-      expect(HELP).toContain('nextcov')
-      expect(HELP).toContain('Usage:')
-      expect(HELP).toContain('Commands:')
-      expect(HELP).toContain('merge')
+      expect(MERGE_HELP).toContain('nextcov merge')
+      expect(MERGE_HELP).toContain('Usage:')
+      expect(MERGE_HELP).toContain('Options:')
     })
 
     it('should contain examples', () => {
-      expect(HELP).toContain('Examples:')
-      expect(HELP).toContain('npx nextcov merge')
+      expect(MERGE_HELP).toContain('Examples:')
+      expect(MERGE_HELP).toContain('npx nextcov merge')
     })
   })
 
@@ -393,7 +391,7 @@ describe('CLI', () => {
       const { dirname, join } = await import('path')
 
       const currentFile = fileURLToPath(import.meta.url)
-      const cliPath = join(dirname(currentFile), '..', 'cli.ts')
+      const cliPath = join(dirname(currentFile), '..', 'cli', 'index.ts')
 
       // Run CLI via tsx to handle TypeScript
       const output = execSync(`npx tsx "${cliPath}" --help`, {
@@ -412,7 +410,7 @@ describe('CLI', () => {
       const { dirname, join } = await import('path')
 
       const currentFile = fileURLToPath(import.meta.url)
-      const cliPath = join(dirname(currentFile), '..', 'cli.ts')
+      const cliPath = join(dirname(currentFile), '..', 'cli', 'index.ts')
 
       const output = execSync(`npx tsx "${cliPath}" merge --help`, {
         encoding: 'utf-8',
@@ -432,7 +430,7 @@ describe('CLI', () => {
 
       const currentFile = fileURLToPath(import.meta.url)
       const projectRoot = resolve(dirname(currentFile), '..', '..')
-      const cliPath = join(projectRoot, 'src', 'cli.ts')
+      const cliPath = join(projectRoot, 'src', 'cli', 'index.ts')
 
       // Use coverage files from test-fixtures (separate from vitest's coverage output)
       const unitDir = join(projectRoot, 'test-fixtures', 'sample-coverage', 'unit')

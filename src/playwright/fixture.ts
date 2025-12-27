@@ -7,9 +7,9 @@
 
 import * as path from 'path'
 import type { Page, TestInfo } from '@playwright/test'
-import { CoverageProcessor } from '../processor.js'
-import { terminateWorkerPool } from '../worker-pool.js'
-import type { CoverageOptions, CoverageResult, ReporterType } from '../types.js'
+import { CoverageProcessor } from '@/core/processor.js'
+import { terminateWorkerPool } from '@/worker/pool.js'
+import type { CoverageOptions, CoverageResult, ReporterType } from '@/types.js'
 import {
   DEFAULT_NEXTCOV_CONFIG,
   DEFAULT_INCLUDE_PATTERNS,
@@ -19,7 +19,7 @@ import {
   type NextcovConfig,
   type ResolvedNextcovConfig,
   type ResolvedDevModeOptions,
-} from '../config.js'
+} from '@/utils/config.js'
 import {
   saveClientCoverage,
   filterAppCoverage,
@@ -29,8 +29,8 @@ import {
   type PlaywrightCoverageEntry,
   type DevServerCoverageEntry,
   type V8ServerCoverageEntry,
-} from '../collector/index.js'
-import { log, setLogging, setTiming } from '../logger.js'
+} from '@/collector/index.js'
+import { log, setLogging, setTiming } from '@/utils/logger.js'
 
 /**
  * Module-level state for persisting between globalSetup and globalTeardown.

@@ -7,10 +7,10 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
-import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
-import { isNextChunksUrl } from '../parsers/nextjs.js'
-import { isViteSourceUrl } from '../parsers/vite.js'
-import { log, createTimer } from '../logger.js'
+import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '@/utils/config.js'
+import { isNextChunksUrl } from '@/parsers/nextjs.js'
+import { isViteSourceUrl } from '@/parsers/vite.js'
+import { log, createTimer } from '@/utils/logger.js'
 
 export interface PlaywrightCoverageEntry {
   url: string
