@@ -1,47 +1,34 @@
 /**
  * nextcov - V8 to Istanbul Coverage Converter
  *
- * A library for converting V8 coverage data to Istanbul format.
- * Supports Next.js, Playwright, and CDP-based coverage collection.
+ * Public API for nextcov. Most users should import from 'nextcov/playwright' instead.
+ * This module exports configuration utilities and advanced merging functions.
+ *
+ * For Playwright integration, use:
+ *   import { initCoverage, finalizeCoverage } from 'nextcov/playwright'
+ *
+ * For merging coverage, use the CLI:
+ *   npx nextcov merge coverage/unit coverage/e2e -o coverage/merged
  */
 
+// ============================================================================
 // Configuration
+// ============================================================================
+// These are primarily used for type definitions in playwright.config.ts
 export {
   // Types
   type NextcovConfig,
   type ResolvedNextcovConfig,
-  type DevModeOptions,
-  type ResolvedDevModeOptions,
-  // Functions
+  // Configuration utilities
   resolveNextcovConfig,
   loadNextcovConfig,
-  clearConfigCache,
-  normalizePath,
-  // Defaults
-  DEFAULT_NEXTCOV_CONFIG,
-  DEFAULT_DEV_MODE_OPTIONS,
-  DEFAULT_INCLUDE_PATTERNS,
-  DEFAULT_EXCLUDE_PATTERNS,
-  DEFAULT_REPORTERS,
-  DEFAULT_WATERMARKS,
-  COVERAGE_FINAL_JSON,
 } from './utils/config.js'
 
-// Core processing modules
+// ============================================================================
+// Advanced Coverage Merging API
+// ============================================================================
+// For users who need programmatic control over merging (most should use CLI)
 export {
-  CoverageProcessor,
-  V8CoverageReader,
-  SourceMapLoader,
-  CoverageConverter,
-  IstanbulReporter,
-} from './core/index.js'
-
-// Merger
-export {
-  CoverageMerger,
-  createMerger,
-  mergeCoverageMaps,
-  mergeWithBaseCoverage,
   mergeCoverage,
   printCoverageSummary,
   printCoverageComparison,
@@ -49,56 +36,17 @@ export {
   type MergeCoverageResult,
 } from './merger/index.js'
 
-// Collectors
-export {
-  // Client collector
-  ClientCoverageCollector,
-  createClientCollector,
-  setDefaultCollectorConfig,
-  initCoverageDir,
-  saveClientCoverage,
-  readAllClientCoverage,
-  cleanCoverageDir,
-  filterAppCoverage,
-  type PlaywrightCoverageEntry,
-  type ClientCollectorConfig,
-  // Dev mode server collector
-  DevModeServerCollector,
-  createDevModeServerCollector,
-  type DevServerCollectorConfig,
-  type DevServerCoverageEntry,
-  // V8 server collector (uses NODE_V8_COVERAGE + CDP trigger)
-  V8ServerCoverageCollector,
-  createV8ServerCollector,
-  startV8ServerCoverage,
-  stopV8ServerCoverage,
-  type V8ServerCoverageEntry,
-  type V8ServerCollectorConfig,
-} from './collector/index.js'
-
-// Dev mode utilities
-export {
-  DevModeSourceMapExtractor,
-  createDevModeExtractor,
-  type ExtractedSourceMap,
-  type DevModeConfig,
-} from './utils/dev-mode-extractor.js'
-
-// Types
+// ============================================================================
+// Common Types
+// ============================================================================
 export type {
   V8Coverage,
   V8ScriptCoverage,
   SourceMapData,
-  SourceFile,
   CoverageOptions,
   CoverageResult,
   CoverageSummary,
   CoverageMetric,
   ReporterType,
   Watermarks,
-  EntryFilter,
-  SourceFilter,
-  MergerConfig,
-  MergeOptions,
-  MergeResult,
 } from './types.js'

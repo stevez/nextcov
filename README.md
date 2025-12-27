@@ -741,9 +741,25 @@ Finalizes coverage collection and generates reports. Call in globalTeardown.
 
 ### Main API (`nextcov`)
 
+The main `nextcov` entry point exports a minimal public API. Most users should import from `nextcov/playwright` instead (see above).
+
+#### Configuration Types
+
+Used primarily for TypeScript definitions in `playwright.config.ts`:
+
+```typescript
+import type { NextcovConfig } from 'nextcov'
+
+export const nextcov: NextcovConfig = {
+  outputDir: 'coverage/e2e',
+  sourceRoot: './src',
+  // ... other options
+}
+```
+
 #### `loadNextcovConfig(configPath?)`
 
-Loads nextcov configuration from playwright.config.ts.
+Loads nextcov configuration from playwright.config.ts. Typically used in global-setup/teardown files.
 
 ```typescript
 import { loadNextcovConfig } from 'nextcov'
@@ -751,31 +767,13 @@ import { loadNextcovConfig } from 'nextcov'
 const config = await loadNextcovConfig('./e2e/playwright.config.ts')
 ```
 
-#### `V8ServerCoverageCollector`
-
-Collector for server-side V8 coverage using `NODE_V8_COVERAGE` + CDP trigger.
-
-```typescript
-import { V8ServerCoverageCollector } from 'nextcov'
-
-const collector = new V8ServerCoverageCollector({
-  cdpPort: 9230,
-  buildDir: '.next',
-  sourceRoot: './src',
-})
-
-const connected = await collector.connect()
-if (connected) {
-  const coverage = await collector.collect()
-  console.log(`Collected ${coverage.length} entries`)
-}
-```
-
 #### `mergeCoverage(options)`
 
-Merges unit and E2E coverage reports.
+Programmatically merge coverage reports. For most use cases, prefer the CLI: `npx nextcov merge`.
 
 ```typescript
+import { mergeCoverage } from 'nextcov'
+
 const result = await mergeCoverage({
   unitCoveragePath: './coverage/unit/coverage-final.json',
   e2eCoveragePath: './coverage/e2e/coverage-final.json',
@@ -786,37 +784,22 @@ const result = await mergeCoverage({
 })
 ```
 
-#### `CoverageProcessor`
+#### Helper Functions
 
-Low-level class for processing V8 coverage.
-
-```typescript
-import { CoverageProcessor } from 'nextcov'
-
-const processor = new CoverageProcessor(projectRoot, {
-  outputDir: './coverage',
-  sourceRoot: './src',
-  include: ['src/**/*.{ts,tsx}'],
-  exclude: ['**/*.test.*'],
-  reporters: ['html', 'json'],
-})
-
-const result = await processor.processAllCoverage(v8CoverageEntries)
-```
-
-#### `CoverageMerger`
-
-Class for merging coverage maps with different strategies.
+For custom merge scripts:
 
 ```typescript
-import { CoverageMerger } from 'nextcov'
+import {
+  printCoverageSummary,
+  printCoverageComparison,
+  type MergeCoverageResult,
+} from 'nextcov'
 
-const merger = new CoverageMerger({
-  strategy: 'max',        // 'max' | 'add' | 'prefer-first' | 'prefer-last'
-  applyFixes: true,       // Apply coverage fixes
-})
+// Print formatted coverage summary
+printCoverageSummary(result.summary, 'Merged Coverage')
 
-const merged = await merger.merge(map1, map2, map3)
+// Print comparison between unit and E2E coverage
+printCoverageComparison(result.unitSummary, result.e2eSummary, result.summary)
 ```
 
 ## How It Works
