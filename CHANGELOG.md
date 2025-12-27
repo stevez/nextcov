@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.2] - 2024-12-27
+
+### Added
+
+- **Project Configuration Checks in `check` command** - Now scans project configuration in addition to code patterns
+  - Separate output sections for "Project Configuration" and "Code Pattern Issues"
+  - Severity levels: error (✗), warning (⚠), info (ℹ)
+
+  **Configuration checks:**
+  | Check | Severity | Description |
+  |-------|----------|-------------|
+  | Outdated browserslist | error | Browser targets don't support `?.` and `??` (min: chrome 111, edge 111, firefox 111, safari 16.4) |
+  | Babel detected | error | Babel config found (may transpile modern syntax, breaking V8 coverage) |
+  | Playwright not found | error | @playwright/test not in devDependencies (required for nextcov) |
+  | Missing browserslist | warning | No browserslist config - `?.` and `??` may be transpiled, causing phantom branches |
+  | Jest detected | warning | Jest config found (consider using Vitest for V8 coverage) |
+  | Source maps not enabled | warning | `productionBrowserSourceMaps: true` not found in next.config |
+  | Vitest not found | info | Vitest not in devDependencies (recommended for V8 coverage) |
+
+- **New files:**
+  - `src/linter/detectors/project-config.ts` - Project configuration detector
+  - `src/linter/config-scanner.ts` - Configuration scanner wrapper
+  - `src/linter/detectors/__tests__/project-config.test.ts` - Detector tests (20 tests)
+  - `src/linter/__tests__/config-scanner.test.ts` - Scanner tests (7 tests)
+
+- **New `--skip-config` flag for `check` command** - Skip project configuration checks
+  ```bash
+  npx nextcov check              # config only (no paths)
+  npx nextcov check src/         # config + source code
+  npx nextcov check src/ --skip-config  # source code only
+  ```
+
+### Changed
+
+- **`check` command behavior** - Config is checked by default, source only scanned if paths provided
+  - `npx nextcov check` → config only
+  - `npx nextcov check src/` → config + source
+  - `npx nextcov check src/ --skip-config` → source only
+
+- **`check` command output** - Now shows two sections:
+  ```
+  Project Configuration:
+  ─────────────────────────────────────────────────────────
+    ✗ Browserslist targets outdated browsers
+    ⚠ Jest detected - consider using Vitest for V8 coverage
+
+  V8 Coverage Readiness Check
+  ═══════════════════════════════════════════════════════════
+  ...code pattern issues...
+  ```
+
+- **Exit code behavior** - Returns 1 if config errors OR code issues found (unless `--ignore-patterns`)
+
+### Tests
+
+- Total tests: 777 passing (up from 742)
+- New tests for config detection, scanning, and `--skip-config` flag
+
 ## [0.12.1] - 2024-12-27
 
 ### Added

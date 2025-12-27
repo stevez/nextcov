@@ -786,11 +786,17 @@ See [Merging with Vitest Coverage](#merging-with-vitest-coverage) for detailed d
 
 ### `nextcov check` - Detect V8 Coverage Blind Spots
 
-Scan your codebase for JSX patterns that V8 cannot track for branch coverage.
+Scan your codebase for JSX patterns that V8 cannot track for branch coverage, and check project configuration for issues that affect V8 coverage accuracy.
 
 ```bash
-# Scan entire src directory
+# Config only (no source paths)
+npx nextcov check
+
+# Config + source code scan
 npx nextcov check src/
+
+# Source code only (skip config)
+npx nextcov check src/ --skip-config
 
 # Scan specific files or directories
 npx nextcov check src/components src/app
@@ -803,11 +809,26 @@ npx nextcov check src/ --json
 
 # Warning mode (don't fail CI)
 npx nextcov check src/ --ignore-patterns
+
+# Ignore specific patterns
+npx nextcov check src/ --ignore '**/generated/**'
 ```
+
+**Project configuration checks:**
+
+| Check | Severity | Description |
+|-------|----------|-------------|
+| Outdated browserslist | error | Browsers don't support `?.` and `??` |
+| Babel detected | error | May transpile modern syntax |
+| Playwright not found | error | Required for nextcov |
+| Missing browserslist | warning | `?.` and `??` may be transpiled |
+| Jest detected | warning | Consider Vitest for V8 coverage |
+| Source maps not enabled | warning | Missing `productionBrowserSourceMaps` |
+| Vitest not found | info | Recommended for V8 coverage |
 
 **Exit codes:**
 - `0` - No issues found (or `--ignore-patterns` used)
-- `1` - Issues found
+- `1` - Config errors or code issues found
 - `2` - Error during scanning
 
 See [Detecting V8 Coverage Blind Spots](#detecting-v8-coverage-blind-spots) for detailed documentation.
@@ -858,6 +879,17 @@ npx nextcov check src/ --ignore-patterns
 ### Example Output
 
 ```
+Project Configuration:
+────────────────────────────────────────────────────────────
+  ✗ Browserslist targets outdated browsers - chrome 60 does not support ?? and ?.
+    Minimum required: chrome 111, edge 111, firefox 111, safari 16.4
+  ✗ Babel detected - may transpile modern syntax
+    babel.config.js
+  ⚠ Jest detected - consider using Vitest for V8 coverage
+    jest.config.ts
+  ⚠ Source maps not enabled in next.config
+  ℹ Vitest not found in devDependencies
+
 V8 Coverage Readiness Check
 ════════════════════════════════════════════════════════════
 
@@ -885,12 +917,13 @@ Learn more: https://github.com/stevez/nextcov#v8-coverage-limitations
 ```
 Usage: npx nextcov check [paths...] [options]
 
-Scan codebase for V8 coverage blind spots in JSX code.
+Scan project config and codebase for V8 coverage issues.
 
 Arguments:
-  paths                   Files or directories to scan (default: current directory)
+  paths                   Files or directories to scan (if omitted, config-only check)
 
 Options:
+  --skip-config          Skip project configuration checks
   --verbose              Show code snippets in console output
   --json                 Output results as JSON for CI integration
   --ignore-patterns      Exit with code 0 even if issues found (show warnings only)
@@ -898,11 +931,13 @@ Options:
 
 Exit Codes:
   0    No issues found (or --ignore-patterns used)
-  1    Issues found
+  1    Config errors or code issues found
   2    Error during scanning
 
 Examples:
-  npx nextcov check src/
+  npx nextcov check              # config only
+  npx nextcov check src/         # config + source code
+  npx nextcov check src/ --skip-config  # source code only
   npx nextcov check src/components --verbose
   npx nextcov check src/ --json > coverage-check.json
   npx nextcov check src/ --ignore-patterns  # CI warnings mode

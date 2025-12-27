@@ -5,20 +5,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { check } from '../check.js'
 import * as scanner from '@/linter/scanner.js'
+import * as configScanner from '@/linter/config-scanner.js'
 import * as reporter from '@/linter/reporter.js'
 import type { ScanResult } from '@/linter/scanner.js'
 import type { JsxIssue } from '@/linter/detectors/jsx-patterns.js'
 
 describe('check command', () => {
   let scanFilesSpy: any
+  let scanConfigSpy: any
   let printReportSpy: any
-  let getExitCodeSpy: any
+  let printConfigReportSpy: any
+  let getCombinedExitCodeSpy: any
   let consoleErrorSpy: any
+
+  const defaultConfigResult = {
+    issues: [],
+    errors: 0,
+    warnings: 0,
+    infos: 0,
+  }
 
   beforeEach(() => {
     scanFilesSpy = vi.spyOn(scanner, 'scanFiles')
+    scanConfigSpy = vi.spyOn(configScanner, 'scanConfig').mockReturnValue(defaultConfigResult)
     printReportSpy = vi.spyOn(reporter, 'printReport').mockImplementation(() => {})
-    getExitCodeSpy = vi.spyOn(reporter, 'getExitCode')
+    printConfigReportSpy = vi.spyOn(reporter, 'printConfigReport').mockImplementation(() => {})
+    getCombinedExitCodeSpy = vi.spyOn(reporter, 'getCombinedExitCode')
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -34,17 +46,19 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     const exitCode = await check(['src'], {})
 
+    expect(scanConfigSpy).toHaveBeenCalledWith({ cwd: process.cwd() })
     expect(scanFilesSpy).toHaveBeenCalledWith({
       paths: ['src'],
       cwd: process.cwd(),
       ignore: [],
     })
+    expect(printConfigReportSpy).toHaveBeenCalledWith(defaultConfigResult, { verbose: false, json: false })
     expect(printReportSpy).toHaveBeenCalledWith(result, { verbose: false, json: false })
-    expect(getExitCodeSpy).toHaveBeenCalledWith(result, false)
+    expect(getCombinedExitCodeSpy).toHaveBeenCalledWith(result, defaultConfigResult, false)
     expect(exitCode).toBe(0)
   })
 
@@ -66,30 +80,54 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(1)
+    getCombinedExitCodeSpy.mockReturnValue(1)
 
     const exitCode = await check(['src'], {})
 
     expect(exitCode).toBe(1)
   })
 
-  it('should use current directory when no paths provided', async () => {
+  it('should run config-only check when no paths provided', async () => {
+    getCombinedExitCodeSpy.mockReturnValue(0)
+
+    await check([], {})
+
+    // Config scan should be called
+    expect(scanConfigSpy).toHaveBeenCalledWith({ cwd: process.cwd() })
+    expect(printConfigReportSpy).toHaveBeenCalled()
+    // Source scan should NOT be called when no paths
+    expect(scanFilesSpy).not.toHaveBeenCalled()
+    expect(printReportSpy).not.toHaveBeenCalled()
+  })
+
+  it('should skip config scan when skipConfig is true', async () => {
     const result: ScanResult = {
       issues: [],
-      filesScanned: 0,
+      filesScanned: 5,
       filesWithIssues: 0,
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
-    await check([], {})
+    await check(['src'], { skipConfig: true })
 
-    expect(scanFilesSpy).toHaveBeenCalledWith({
-      paths: ['.'],
-      cwd: process.cwd(),
-      ignore: [],
-    })
+    // Config scan should NOT be called
+    expect(scanConfigSpy).not.toHaveBeenCalled()
+    expect(printConfigReportSpy).not.toHaveBeenCalled()
+    // Source scan should be called
+    expect(scanFilesSpy).toHaveBeenCalled()
+    expect(printReportSpy).toHaveBeenCalled()
+  })
+
+  it('should show message when no paths and skipConfig', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const exitCode = await check([], { skipConfig: true })
+
+    expect(consoleLogSpy).toHaveBeenCalledWith('Nothing to check. Provide paths for source scanning or remove --skip-config.')
+    expect(exitCode).toBe(0)
+    consoleLogSpy.mockRestore()
   })
 
   it('should pass verbose option to printReport', async () => {
@@ -100,11 +138,12 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src'], { verbose: true })
 
     expect(printReportSpy).toHaveBeenCalledWith(result, { verbose: true, json: false })
+    expect(printConfigReportSpy).toHaveBeenCalledWith(defaultConfigResult, { verbose: true, json: false })
   })
 
   it('should pass json option to printReport', async () => {
@@ -115,14 +154,15 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src'], { json: true })
 
     expect(printReportSpy).toHaveBeenCalledWith(result, { verbose: false, json: true })
+    expect(printConfigReportSpy).toHaveBeenCalledWith(defaultConfigResult, { verbose: false, json: true })
   })
 
-  it('should pass ignorePatterns option to getExitCode', async () => {
+  it('should pass ignorePatterns option to getCombinedExitCode', async () => {
     const result: ScanResult = {
       issues: [
         {
@@ -138,11 +178,11 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src'], { ignorePatterns: true })
 
-    expect(getExitCodeSpy).toHaveBeenCalledWith(result, true)
+    expect(getCombinedExitCodeSpy).toHaveBeenCalledWith(result, defaultConfigResult, true)
   })
 
   it('should pass ignore patterns to scanFiles', async () => {
@@ -153,7 +193,7 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src'], { ignore: ['**/*.test.ts', '**/node_modules/**'] })
 
@@ -172,7 +212,7 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src', 'lib', 'components'], {})
 
@@ -191,7 +231,7 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src'], {
       verbose: true,
@@ -206,7 +246,7 @@ describe('check command', () => {
       ignore: ['**/*.test.ts'],
     })
     expect(printReportSpy).toHaveBeenCalledWith(result, { verbose: true, json: true })
-    expect(getExitCodeSpy).toHaveBeenCalledWith(result, true)
+    expect(getCombinedExitCodeSpy).toHaveBeenCalledWith(result, defaultConfigResult, true)
   })
 
   it('should return exit code 2 when scanFiles throws error', async () => {
@@ -227,7 +267,7 @@ describe('check command', () => {
     await check(['src'], {})
 
     expect(printReportSpy).not.toHaveBeenCalled()
-    expect(getExitCodeSpy).not.toHaveBeenCalled()
+    expect(getCombinedExitCodeSpy).not.toHaveBeenCalled()
   })
 
   it('should use default values for options', async () => {
@@ -238,12 +278,12 @@ describe('check command', () => {
     }
 
     scanFilesSpy.mockResolvedValue(result)
-    getExitCodeSpy.mockReturnValue(0)
+    getCombinedExitCodeSpy.mockReturnValue(0)
 
     await check(['src'], {})
 
     expect(printReportSpy).toHaveBeenCalledWith(result, { verbose: false, json: false })
-    expect(getExitCodeSpy).toHaveBeenCalledWith(result, false)
+    expect(getCombinedExitCodeSpy).toHaveBeenCalledWith(result, defaultConfigResult, false)
     expect(scanFilesSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         ignore: [],
