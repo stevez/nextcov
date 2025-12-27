@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.2] - 2024-12-26
+
+### Changed
+
+- **Reduced public API surface for smaller bundle size** - Minimized main entry point exports
+  - Removed 60+ internal exports from `src/index.ts` that users should never import directly
+  - Removed default value exports (`DEFAULT_NEXTCOV_CONFIG`, `DEFAULT_INCLUDE_PATTERNS`, etc.) - only needed internally
+  - Removed utility function exports (`normalizePath`) - only needed internally
+  - Kept only 5 essential runtime exports: `loadNextcovConfig`, `resolveNextcovConfig`, `mergeCoverage`, `printCoverageSummary`, `printCoverageComparison`
+  - Type definitions (`NextcovConfig`, etc.) remain available for TypeScript users
+  - Most users import from `nextcov/playwright` instead of main entry point
+  - Bundle size reduced from 143 KB to 27.28 KB (~81% reduction)
+  - Updated [README.md](README.md#L742-L803) API documentation to reflect minimal public API
+
 ## [0.11.1] - 2024-12-26
 
 ### Changed
