@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.1] - 2024-12-27
+
+### Added
+
+- **Dependencies** - Added for enhanced check command output
+  - `chalk@^4.1.2` - Terminal color output for ESLint-style formatting
+
+- **Documentation** - Enhanced README with comprehensive CLI command reference
+  - Added "CLI Commands" section documenting all three commands (`init`, `merge`, `check`)
+  - Added "Detecting V8 Coverage Blind Spots" section with problem description, solutions, and real-world impact
+  - Included before/after code examples showing how to fix blind spots
+  - Added CI integration examples for GitHub Actions
+  - Documented real-world metrics: refactoring JSX patterns increased trackable branches from 433 to 445 (+12 paths)
+
+### Changed
+
+- **Console Reporter** - Enhanced with colored output using chalk
+  - ESLint-style colored output for better readability
+  - Bold code snippets in verbose mode
+  - Color-coded file paths, warnings, and messages
+
 ## [0.12.0] - 2024-12-26
 
 ### Added
@@ -17,7 +38,7 @@ All notable changes to this project will be documented in this file.
     - `--ignore-patterns` - Exit with 0 even if issues found (for CI warnings)
   - Returns exit code 0 (clean), 1 (issues found), or 2 (error)
   - Scans `.js`, `.jsx`, `.ts`, `.tsx` files
-  - Automatically ignores `node_modules/`, `.next/`, `dist/`, `build/`, `.git/`, `coverage/`
+  - Automatically ignores `node_modules/`, `.next/`, `dist/`, `build/`, `.git/`, `coverage/`, test files
   - Example: `npx nextcov check src/ --verbose`
 
 - **JSX Pattern Detector** - AST-based detection using Babel parser
@@ -32,7 +53,7 @@ All notable changes to this project will be documented in this file.
   - Scans directories recursively for JS/TS files
   - Supports specific file paths or directory patterns
   - Custom ignore patterns support
-  - Relative file path output
+  - Cross-platform path normalization (forward slashes on all platforms)
   - Comprehensive test suite with 13 tests (95% statement coverage)
 
 - **Console Reporter** - Formatted output for scan results

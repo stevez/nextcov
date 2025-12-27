@@ -681,6 +681,297 @@ Run with:
 npx ts-node --esm scripts/merge-coverage.ts
 ```
 
+## CLI Commands
+
+nextcov provides three CLI commands for different workflows:
+
+### `nextcov init` - Interactive Setup
+
+The fastest way to get started with nextcov. Creates all necessary configuration files and modifies your project setup.
+
+```bash
+# Interactive mode - prompts for options
+npx nextcov init
+
+# Use defaults (no prompts)
+npx nextcov init -y
+
+# Client-only mode (Vite, static sites, SPAs)
+npx nextcov init --client-only
+
+# Custom E2E directory
+npx nextcov init --e2e-dir tests
+
+# Use JavaScript instead of TypeScript
+npx nextcov init --js
+
+# Overwrite existing files
+npx nextcov init --force
+```
+
+**What it creates:**
+- `e2e/global-setup.ts` - Initialize coverage collection
+- `e2e/global-teardown.ts` - Finalize and generate reports
+- `e2e/fixtures/test-fixtures.ts` - Coverage collection fixture
+- Modifies `playwright.config.ts` - Adds nextcov configuration
+- Modifies `package.json` - Adds npm scripts
+- Modifies `next.config.ts` - Adds source map settings (Next.js only)
+
+See [Quick Setup with `nextcov init`](#quick-setup-with-nextcov-init) for detailed documentation.
+
+### `nextcov merge` - Merge Coverage Reports
+
+Merge multiple coverage directories into a single unified report. Useful for combining unit tests, component tests, and E2E tests.
+
+```bash
+# Basic usage - merge two coverage directories
+npx nextcov merge coverage/unit coverage/e2e
+
+# Specify output directory
+npx nextcov merge coverage/unit coverage/e2e -o coverage/merged
+
+# Merge multiple directories
+npx nextcov merge coverage/unit coverage/component coverage/e2e
+
+# Customize reporters
+npx nextcov merge coverage/unit coverage/e2e --reporters html,lcov,json
+
+# Disable coverage directive stripping
+npx nextcov merge coverage/unit coverage/e2e --no-strip
+```
+
+**CLI Reference:**
+
+```
+Usage: npx nextcov merge <dirs...> [options]
+
+Merge multiple coverage directories into a single report.
+
+Arguments:
+  dirs                  Coverage directories to merge (must contain coverage-final.json)
+
+Options:
+  -o, --output <dir>    Output directory for merged report (default: ./coverage/merged)
+  --reporters <list>    Comma-separated reporters: html,lcov,json,text-summary
+                        (default: html,lcov,json,text-summary)
+  --no-strip            Disable stripping of import statements and directives
+  --help                Show this help message
+
+Examples:
+  npx nextcov merge coverage/unit coverage/e2e
+  npx nextcov merge coverage/unit coverage/e2e -o coverage/all
+  npx nextcov merge coverage/unit coverage/e2e --reporters html,lcov
+```
+
+**Why strip directives?**
+
+By default, `nextcov merge` strips import statements and directives (`'use client'`, `'use server'`) from coverage data before merging. This ensures accurate merged coverage when combining different test types:
+
+- **Unit/component tests** (Vitest) count imports and directives as statements
+- **E2E tests** (bundled code) don't include imports or directives
+
+Use `--no-strip` if you need to preserve the original coverage data.
+
+**Add to package.json:**
+
+```json
+{
+  "scripts": {
+    "coverage:merge": "nextcov merge coverage/unit coverage/e2e -o coverage/merged"
+  }
+}
+```
+
+See [Merging with Vitest Coverage](#merging-with-vitest-coverage) for detailed documentation.
+
+### `nextcov check` - Detect V8 Coverage Blind Spots
+
+Scan your codebase for JSX patterns that V8 cannot track for branch coverage.
+
+```bash
+# Scan entire src directory
+npx nextcov check src/
+
+# Scan specific files or directories
+npx nextcov check src/components src/app
+
+# Show code snippets
+npx nextcov check src/ --verbose
+
+# JSON output for CI
+npx nextcov check src/ --json
+
+# Warning mode (don't fail CI)
+npx nextcov check src/ --ignore-patterns
+```
+
+**Exit codes:**
+- `0` - No issues found (or `--ignore-patterns` used)
+- `1` - Issues found
+- `2` - Error during scanning
+
+See [Detecting V8 Coverage Blind Spots](#detecting-v8-coverage-blind-spots) for detailed documentation.
+
+## Detecting V8 Coverage Blind Spots
+
+nextcov includes a `check` command to scan your codebase for JSX patterns that V8 cannot track for branch coverage. This helps you identify code that may appear uncovered even when fully tested.
+
+### The Problem
+
+V8 coverage has a limitation with conditional JSX rendering patterns:
+
+```tsx
+// These patterns are NOT tracked by V8 for branch coverage
+function MyComponent({ error, user }) {
+  return (
+    <div>
+      {error && <ErrorMessage message={error} />}
+      {user ? <LoggedIn /> : <LoggedOut />}
+    </div>
+  )
+}
+```
+
+Even if your tests exercise both the `error` and `no error` paths, V8 will not track these as branches. This creates blind spots in your coverage reports.
+
+### Using `nextcov check`
+
+Scan your codebase to find these patterns:
+
+```bash
+# Scan entire src directory
+npx nextcov check src/
+
+# Scan specific files or directories
+npx nextcov check src/components src/app
+
+# Show code snippets for each issue
+npx nextcov check src/ --verbose
+
+# Output as JSON for CI integration
+npx nextcov check src/ --json
+
+# Don't fail CI build (just show warnings)
+npx nextcov check src/ --ignore-patterns
+```
+
+### Example Output
+
+```
+V8 Coverage Readiness Check
+════════════════════════════════════════════════════════════
+
+V8 Coverage Blind Spots Found:
+────────────────────────────────────────────────────────────
+
+src/components/ReviewForm.tsx:69:9
+  ⚠ JSX logical AND (V8 cannot track branch coverage)
+
+src/components/ui/Input.tsx:25:26
+  ⚠ JSX ternary operator (V8 cannot track branch coverage)
+
+────────────────────────────────────────────────────────────
+Found 2 issues in 2 files
+Scanned 43 files
+
+These patterns cannot be tracked by V8 coverage.
+Consider extracting to separate components with if/else.
+
+Learn more: https://github.com/stevez/nextcov#v8-coverage-limitations
+```
+
+### CLI Reference
+
+```
+Usage: npx nextcov check [paths...] [options]
+
+Scan codebase for V8 coverage blind spots in JSX code.
+
+Arguments:
+  paths                   Files or directories to scan (default: current directory)
+
+Options:
+  --verbose              Show code snippets in console output
+  --json                 Output results as JSON for CI integration
+  --ignore-patterns      Exit with code 0 even if issues found (show warnings only)
+  --help                 Show this help message
+
+Exit Codes:
+  0    No issues found (or --ignore-patterns used)
+  1    Issues found
+  2    Error during scanning
+
+Examples:
+  npx nextcov check src/
+  npx nextcov check src/components --verbose
+  npx nextcov check src/ --json > coverage-check.json
+  npx nextcov check src/ --ignore-patterns  # CI warnings mode
+```
+
+### The Fix
+
+Refactor JSX conditionals to use variable assignments with ternaries:
+
+```tsx
+// ✓ BEFORE - Not tracked by V8
+function MyComponent({ error, user }) {
+  return (
+    <div>
+      {error && <ErrorMessage message={error} />}
+      {user ? <LoggedIn /> : <LoggedOut />}
+    </div>
+  )
+}
+
+// ✓ AFTER - Properly tracked by V8
+function MyComponent({ error, user }) {
+  const errorMessage = error ? <ErrorMessage message={error} /> : null
+  const userStatus = user ? <LoggedIn /> : <LoggedOut />
+
+  return (
+    <div>
+      {errorMessage}
+      {userStatus}
+    </div>
+  )
+}
+```
+
+**Why this works:**
+- The ternary operator in the variable assignment (`error ? ... : null`) creates a proper branch that V8 tracks
+- The JSX expression container `{errorMessage}` just renders the result, not a conditional
+- Your coverage reports will now accurately show which branches are tested
+
+**Real-world impact:**
+
+After refactoring these patterns in a production app:
+- Before: 433 trackable branch paths
+- After: 445 trackable branch paths
+- Gained: +12 branch paths that V8 can now track
+
+### CI Integration
+
+Add to your CI workflow:
+
+```yaml
+# .github/workflows/ci.yml
+- name: Check for V8 coverage blind spots
+  run: npx nextcov check src/ --json > coverage-check.json
+
+- name: Upload coverage check results
+  uses: actions/upload-artifact@v3
+  with:
+    name: coverage-check
+    path: coverage-check.json
+```
+
+Or fail the build if blind spots are found:
+
+```yaml
+- name: Enforce V8 coverage readiness
+  run: npx nextcov check src/  # exits 1 if issues found
+```
+
 ## API Reference
 
 ### Playwright Integration (`nextcov/playwright`)
