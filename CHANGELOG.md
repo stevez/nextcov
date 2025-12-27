@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2024-12-27
+
+### 🎉 Stable Release
+
+nextcov has reached 1.0! This release marks API stability and production readiness.
+
+**What nextcov provides:**
+- V8 code coverage for Next.js and Vite applications with Playwright E2E tests
+- Merge Playwright E2E coverage with Vitest unit test coverage
+- Support for React Server Components testing through E2E
+- Auto-detection of dev mode vs production mode
+- Client-only mode for Vite, static sites, and SPAs
+
+**Key features:**
+- `nextcov init` - Interactive project setup
+- `nextcov merge` - Merge multiple coverage reports
+- `nextcov check` - Detect V8 coverage blind spots and configuration issues
+
+**Quality metrics:**
+- 777 tests passing
+- 74% code coverage
+- Zero technical debt (no TODO/FIXME markers)
+- Strict TypeScript with full type safety
+- Professional error handling throughout
+
+**Since 0.1.0:**
+- 12 minor releases with continuous improvements
+- Comprehensive documentation with two example projects
+- Battle-tested in production applications
+
 ## [0.12.2] - 2024-12-27
 
 ### Added

@@ -1267,6 +1267,23 @@ function MyComponent({ user }) {
 
 If coverage processing takes a very long time (30+ seconds), you may have large bundled dependencies. V8 coverage works on the bundled output, so large libraries bundled into your app will slow down source map processing.
 
+**Worker thread configuration:**
+
+nextcov uses worker threads to parallelize AST processing for large bundles. You can tune this with:
+
+```bash
+# Disable workers (run in main thread) - useful for debugging or low-core CI
+NEXTCOV_WORKERS=0 npx playwright test
+
+# Use specific number of workers (default: auto-detected based on CPU cores)
+NEXTCOV_WORKERS=4 npx playwright test
+```
+
+Worker thread settings:
+- `0` = Main thread only (fastest for 2-core CI runners, avoids worker overhead)
+- `1` = Single worker (not recommended)
+- `2+` = Parallel workers (default auto-selects based on CPU cores, max 8)
+
 **Common culprits:**
 - `react-icons` - Barrel exports bundle entire icon sets even when importing a few icons
 - Large UI component libraries
