@@ -7,7 +7,7 @@
 
 import { join, resolve, sep } from 'node:path'
 import { existsSync } from 'node:fs'
-import type { Watermarks, ReporterType } from './types.js'
+import type { Watermarks, ReporterType } from '@/types.js'
 
 /**
  * Default include patterns for source files

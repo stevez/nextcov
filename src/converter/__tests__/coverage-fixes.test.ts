@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createCoverageMap } from 'istanbul-lib-coverage'
-import type { CoverageMapData } from 'istanbul-lib-coverage'
+import type { CoverageMapData, FileCoverageData } from 'istanbul-lib-coverage'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -70,7 +70,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       removePhantomBranches(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Phantom branch should be removed, only real branch remains
       expect(Object.keys(result.branchMap)).toHaveLength(1)
       expect(result.branchMap['1']).toBeDefined()
@@ -106,7 +106,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       removePhantomBranches(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       expect(Object.keys(result.branchMap)).toHaveLength(1)
       expect(result.branchMap['0']).toBeDefined()
     })
@@ -140,7 +140,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       removePhantomBranches(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       expect(Object.keys(result.branchMap)).toHaveLength(1)
     })
   })
@@ -181,7 +181,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       fixFunctionDeclarationStatements(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Statement should now have same count as function
       expect(result.s['0']).toBe(5)
     })
@@ -221,7 +221,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       fixFunctionDeclarationStatements(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       expect(result.s['0']).toBe(0)
     })
 
@@ -260,7 +260,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       fixFunctionDeclarationStatements(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       expect(result.s['0']).toBe(3) // Should remain unchanged
     })
   })
@@ -311,7 +311,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       removeDuplicateFunctionEntries(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Should only have one function remaining (the one with higher count)
       expect(Object.keys(result.fnMap)).toHaveLength(1)
       expect(result.fnMap['1']).toBeDefined()
@@ -363,7 +363,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       removeDuplicateFunctionEntries(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       expect(Object.keys(result.fnMap)).toHaveLength(1)
       // Should keep the one with body on different line (function '1')
       expect(result.fnMap['1']).toBeDefined()
@@ -411,7 +411,7 @@ describe('coverage-fixes', () => {
       coverageMap.addFileCoverage(fileCoverage)
       removeDuplicateFunctionEntries(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Both functions should remain (different positions)
       expect(Object.keys(result.fnMap)).toHaveLength(2)
     })
@@ -456,7 +456,7 @@ describe('coverage-fixes', () => {
 
       await fixEmptyStatementMaps(coverageMap, { createEmptyCoverage })
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       expect(Object.keys(result.statementMap)).toHaveLength(1)
       expect(result.s['0']).toBe(1) // Function was executed
     })
@@ -497,7 +497,7 @@ describe('coverage-fixes', () => {
 
       await fixEmptyStatementMaps(coverageMap, { createEmptyCoverage })
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Should have implicit branch
       expect(Object.keys(result.branchMap)).toHaveLength(1)
       expect(result.b['0']).toEqual([1]) // Executed
@@ -544,7 +544,7 @@ export function List({ items }) {
       coverageMap.addFileCoverage(fileCoverage)
       await filterJsxArrayMethodCallbacks(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Anonymous function for .map callback should be removed
       expect(result.fnMap['0']).toBeDefined() // List function remains
       expect(result.fnMap['1']).toBeUndefined() // Callback removed
@@ -588,7 +588,7 @@ export function filterItems(items, cuisine) {
       coverageMap.addFileCoverage(fileCoverage)
       await filterJsxArrayMethodCallbacks(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Both functions should remain (not JSX)
       expect(Object.keys(result.fnMap)).toHaveLength(2)
     })
@@ -638,7 +638,7 @@ export function calculate(a, b) {
       coverageMap.addFileCoverage(fileCoverage)
       await fixSpuriousBranches(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Spurious branch should be removed (no logical expression in source)
       expect(Object.keys(result.branchMap)).toHaveLength(0)
     })
@@ -685,7 +685,7 @@ export function check(a, b) {
       coverageMap.addFileCoverage(fileCoverage)
       await fixSpuriousBranches(coverageMap)
 
-      const result = coverageMap.fileCoverageFor(filePath).toJSON()
+      const result = coverageMap.fileCoverageFor(filePath).toJSON() as FileCoverageData
       // Real branch should remain
       expect(Object.keys(result.branchMap)).toHaveLength(1)
     })

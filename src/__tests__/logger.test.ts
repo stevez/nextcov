@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { log, warn, error, setLogging, isLoggingEnabled, setTiming, isTimingEnabled, createTimer } from '../logger.js'
+import { log, warn, error, setLogging, isLoggingEnabled, setTiming, isTimingEnabled, createTimer } from '../utils/logger.js'
 
 describe('logger', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>

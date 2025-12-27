@@ -12,10 +12,10 @@
  * Note: Server code runs on CDP port 9231 (child worker), not 9230 (parent CLI)
  */
 
-import type { SourceMapData } from '../types.js'
-import { DevModeSourceMapExtractor } from '../dev-mode-extractor.js'
-import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from '../config.js'
-import { log } from '../logger.js'
+import type { SourceMapData } from '@/types.js'
+import { DevModeSourceMapExtractor } from '@/utils/dev-mode-extractor.js'
+import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from '@/utils/config.js'
+import { log } from '@/utils/logger.js'
 import {
   type MonocartCDPClient,
   type BaseCoverageEntry,

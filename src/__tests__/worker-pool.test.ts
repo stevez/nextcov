@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { WorkerPool, getWorkerPool, terminateWorkerPool } from '../worker-pool.js'
+import { WorkerPool, getWorkerPool, terminateWorkerPool } from '../worker/pool.js'
 
 describe('worker-pool', () => {
   describe('WorkerPool', () => {

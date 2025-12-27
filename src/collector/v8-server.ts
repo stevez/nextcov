@@ -19,11 +19,11 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '../config.js'
-import { getServerPatterns } from '../parsers/nextjs.js'
-import { containsSourceRoot } from '../parsers/webpack.js'
-import { isLocalFileUrl, isNodeModulesUrl } from '../parsers/index.js'
-import { log, safeClose } from '../logger.js'
+import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '@/utils/config.js'
+import { getServerPatterns } from '@/parsers/nextjs.js'
+import { containsSourceRoot } from '@/parsers/webpack.js'
+import { isLocalFileUrl, isNodeModulesUrl } from '@/parsers/index.js'
+import { log, safeClose } from '@/utils/logger.js'
 import {
   type MonocartCDPClient,
   type BaseCoverageEntry,

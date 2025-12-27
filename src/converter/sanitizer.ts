@@ -8,11 +8,11 @@
  */
 
 import { decode, encode, type SourceMapMappings } from '@jridgewell/sourcemap-codec'
-import type { SourceMapData } from '../types.js'
-import { log, formatError } from '../logger.js'
-import { isNodeModulesPath } from '../parsers/url-utils.js'
-import type { SourceMapLoader } from '../sourcemap-loader.js'
-import { SOURCE_MAP_PADDING_BEFORE, SOURCE_MAP_PADDING_AFTER } from '../constants.js'
+import type { SourceMapData } from '@/types.js'
+import { log, formatError } from '@/utils/logger.js'
+import { isNodeModulesPath } from '@/parsers/url-utils.js'
+import type { SourceMapLoader } from '@/core/sourcemap-loader.js'
+import { SOURCE_MAP_PADDING_BEFORE, SOURCE_MAP_PADDING_AFTER } from '@/utils/constants.js'
 
 export interface SanitizerOptions {
   projectRoot: string

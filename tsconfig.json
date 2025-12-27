@@ -19,7 +19,20 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@/cli/*": ["src/cli/*"],
+      "@/core/*": ["src/core/*"],
+      "@/utils/*": ["src/utils/*"],
+      "@/worker/*": ["src/worker/*"],
+      "@/merger/*": ["src/merger/*"],
+      "@/converter/*": ["src/converter/*"],
+      "@/parsers/*": ["src/parsers/*"],
+      "@/collector/*": ["src/collector/*"],
+      "@/types.js": ["src/types.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

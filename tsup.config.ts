@@ -30,7 +30,7 @@ export default defineConfig([
   },
   // CLI entry (ESM only, executable)
   {
-    entry: ['src/cli.ts'],
+    entry: { cli: 'src/cli/index.ts' },
     format: ['esm'],
     outDir: 'dist',
     splitting: false,
@@ -42,9 +42,9 @@ export default defineConfig([
   },
   // Worker file (used by worker_threads, must be separate file)
   {
-    entry: ['src/ast-worker.ts'],
+    entry: ['src/worker/ast-worker.ts'],
     format: ['esm'],
-    outDir: 'dist',
+    outDir: 'dist/worker',
     splitting: false,
     sourcemap: false,
     target: 'node20',

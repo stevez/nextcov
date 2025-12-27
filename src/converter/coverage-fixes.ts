@@ -8,8 +8,8 @@
 
 import { parse as babelParse } from '@babel/parser'
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
-import { log, createTimer } from '../logger.js'
-import { FILE_READ_BATCH_SIZE } from '../constants.js'
+import { log, createTimer } from '@/utils/logger.js'
+import { FILE_READ_BATCH_SIZE } from '@/utils/constants.js'
 
 /**
  * Options for coverage fix functions

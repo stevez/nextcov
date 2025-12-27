@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import libCoverage from 'istanbul-lib-coverage'
 import type { CoverageMap, CoverageMapData } from 'istanbul-lib-coverage'
-import { IstanbulReporter } from '../reporter.js'
+import { IstanbulReporter } from '../core/reporter.js'
 
 // Helper to create a coverage map with test data
 function createTestCoverageMap(files: Record<string, {

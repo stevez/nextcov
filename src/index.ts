@@ -25,16 +25,16 @@ export {
   DEFAULT_REPORTERS,
   DEFAULT_WATERMARKS,
   COVERAGE_FINAL_JSON,
-} from './config.js'
+} from './utils/config.js'
 
-// Main processor
-export { CoverageProcessor } from './processor.js'
-
-// Supporting classes
-export { V8CoverageReader } from './v8-reader.js'
-export { SourceMapLoader } from './sourcemap-loader.js'
-export { CoverageConverter } from './converter.js'
-export { IstanbulReporter } from './reporter.js'
+// Core processing modules
+export {
+  CoverageProcessor,
+  V8CoverageReader,
+  SourceMapLoader,
+  CoverageConverter,
+  IstanbulReporter,
+} from './core/index.js'
 
 // Merger
 export {
@@ -47,7 +47,7 @@ export {
   printCoverageComparison,
   type MergeCoverageOptions,
   type MergeCoverageResult,
-} from './merger.js'
+} from './merger/index.js'
 
 // Collectors
 export {
@@ -82,7 +82,7 @@ export {
   createDevModeExtractor,
   type ExtractedSourceMap,
   type DevModeConfig,
-} from './dev-mode-extractor.js'
+} from './utils/dev-mode-extractor.js'
 
 // Types
 export type {

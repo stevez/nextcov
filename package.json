@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -29,7 +29,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc-alias",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -81,6 +81,7 @@
     "@vitest/coverage-v8": "^4.0.15",
     "eslint": "^9.39.1",
     "rimraf": "^6.0.0",
+    "tsc-alias": "^1.8.16",
     "tsup": "^8.5.1",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.49.0",

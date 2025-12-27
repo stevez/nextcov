@@ -11,7 +11,7 @@ import {
 import { createMockCoverageClient } from './test-utils.js'
 
 // Mock the logger module
-vi.mock('../../logger.js', () => ({
+vi.mock('@/utils/logger.js', () => ({
   log: vi.fn(),
   setLogging: vi.fn(),
   isLoggingEnabled: vi.fn().mockReturnValue(false),
@@ -120,7 +120,7 @@ describe('V8ServerCoverageCollector', () => {
 
   describe('connect', () => {
     it('should return false when CDP connection fails', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockRejectedValue(new Error('Connection failed'))
 
@@ -131,7 +131,7 @@ describe('V8ServerCoverageCollector', () => {
     })
 
     it('should return true when CDP connection succeeds', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
       const mockClient = createMockCoverageClient()
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
@@ -156,7 +156,7 @@ describe('V8ServerCoverageCollector', () => {
 
   describe('triggerCoverageWrite', () => {
     it('should return null when not connected', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
 
       const result = await collector.triggerCoverageWrite()
 
@@ -192,7 +192,7 @@ describe('V8ServerCoverageCollector', () => {
     })
 
     it('should handle writeCoverage errors', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockRejectedValue(new Error('Write failed')),
       })
@@ -360,7 +360,7 @@ describe('V8ServerCoverageCollector', () => {
       vi.mocked(existsSync).mockReturnValue(true)
       vi.mocked(readdirSync).mockReturnValue([])
 
-      const { safeClose } = await import('../../logger.js')
+      const { safeClose } = await import('@/utils/logger.js')
 
       await collector.connect()
       await collector.collect()

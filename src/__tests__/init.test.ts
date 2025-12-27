@@ -5,7 +5,7 @@ import {
   INIT_HELP,
   executeInit,
   type InitOptions,
-} from '../init.js'
+} from '../cli/commands/init.js'
 
 // Mock fs module
 vi.mock('fs', async (importOriginal) => {

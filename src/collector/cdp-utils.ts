@@ -8,7 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { CDPClient } from 'monocart-coverage-reports'
-import { log, safeClose } from '../logger.js'
+import { log, safeClose } from '@/utils/logger.js'
 
 /** Default timeout for CDP port availability check (ms) */
 const CDP_CHECK_TIMEOUT = 2000

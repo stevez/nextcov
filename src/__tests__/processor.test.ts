@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { CoverageProcessor } from '../processor.js'
+import { CoverageProcessor } from '../core/processor.js'
 
 const isWindows = process.platform === 'win32'
 const projectRoot = isWindows ? 'C:/project' : '/project'

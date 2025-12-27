@@ -12,10 +12,10 @@ import {
   mergeCoverage,
   printCoverageSummary,
   printCoverageComparison,
-} from '../merger.js'
+} from '../merger/index.js'
 
 // Mock the logger module
-vi.mock('../logger.js', () => ({
+vi.mock('../utils/logger.js', () => ({
   log: vi.fn(),
   setLogging: vi.fn(),
   isLoggingEnabled: vi.fn().mockReturnValue(false),
@@ -524,7 +524,7 @@ describe('mergeCoverage', () => {
   })
 
   it('should support verbose mode', async () => {
-    const { log } = await import('../logger.js')
+    const { log } = await import('../utils/logger.js')
     const e2eMap = createTestCoverageMap({
       '/e2e.ts': { statements: { '0': 1 } },
     })
@@ -572,7 +572,7 @@ describe('mergeCoverage', () => {
 
 describe('printCoverageSummary', () => {
   it('should print summary without throwing', async () => {
-    const { log } = await import('../logger.js')
+    const { log } = await import('../utils/logger.js')
 
     const summary = {
       statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
@@ -586,7 +586,7 @@ describe('printCoverageSummary', () => {
   })
 
   it('should accept custom title', async () => {
-    const { log } = await import('../logger.js')
+    const { log } = await import('../utils/logger.js')
 
     const summary = {
       statements: { total: 10, covered: 8, skipped: 0, pct: 80 },
@@ -614,7 +614,7 @@ describe('printCoverageSummary', () => {
 
 describe('printCoverageComparison', () => {
   it('should print comparison with all values', async () => {
-    const { log } = await import('../logger.js')
+    const { log } = await import('../utils/logger.js')
 
     const unit = {
       statements: { total: 10, covered: 5, skipped: 0, pct: 50 },

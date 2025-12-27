@@ -15,4 +15,4 @@ export {
 } from './fixture.js'
 
 // Re-export loadNextcovConfig for convenience
-export { loadNextcovConfig, resolveNextcovConfig } from '../config.js'
+export { loadNextcovConfig, resolveNextcovConfig } from '@/utils/config.js'

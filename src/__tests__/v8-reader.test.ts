@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { V8CoverageReader } from '../v8-reader.js'
+import { V8CoverageReader } from '../core/v8-reader.js'
 import type { V8Coverage, V8ScriptCoverage } from '../types.js'
 
 describe('V8CoverageReader', () => {

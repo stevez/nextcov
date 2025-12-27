@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path'
 import { glob } from 'glob'
 import { V8CoverageReader } from './v8-reader.js'
 import { SourceMapLoader } from './sourcemap-loader.js'
-import { CoverageConverter } from './converter.js'
+import { CoverageConverter } from '@/converter/index.js'
 import { IstanbulReporter } from './reporter.js'
 import {
   DEFAULT_NEXTCOV_CONFIG,
@@ -18,14 +18,14 @@ import {
   COVERAGE_FINAL_JSON,
   normalizePath,
   isPathWithinBase,
-} from './config.js'
+} from '@/utils/config.js'
 import type {
   CoverageOptions,
   CoverageResult,
   CoverageSummary,
-} from './types.js'
+} from '@/types.js'
 import type { CoverageMap } from 'istanbul-lib-coverage'
-import { log } from './logger.js'
+import { log } from '@/utils/logger.js'
 
 export class CoverageProcessor {
   private projectRoot: string

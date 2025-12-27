@@ -5,7 +5,7 @@ import {
 } from '../dev-server.js'
 
 // Mock the logger module
-vi.mock('../../logger.js', () => ({
+vi.mock('@/utils/logger.js', () => ({
   log: vi.fn(),
   setLogging: vi.fn(),
   isLoggingEnabled: vi.fn().mockReturnValue(false),
@@ -63,7 +63,7 @@ describe('DevModeServerCollector', () => {
 
   describe('connect', () => {
     it('should return false when CDPClient returns null', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
       const { CDPClient } = await import('monocart-coverage-reports')
       // @ts-expect-error - testing null return value which can happen at runtime
       vi.mocked(CDPClient).mockResolvedValue(null)
@@ -75,7 +75,7 @@ describe('DevModeServerCollector', () => {
     })
 
     it('should return false when CDPClient throws', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockRejectedValue(new Error('Connection refused'))
 
@@ -103,7 +103,7 @@ describe('DevModeServerCollector', () => {
 
   describe('collect', () => {
     it('should return empty array when not connected', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
 
       const result = await collector.collect()
 
@@ -112,7 +112,7 @@ describe('DevModeServerCollector', () => {
     })
 
     it('should return empty array when stopJSCoverage returns null', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
       const mockClient = {
         startJSCoverage: vi.fn().mockResolvedValue(undefined),
         stopJSCoverage: vi.fn().mockResolvedValue(null),
@@ -210,7 +210,7 @@ describe('DevModeServerCollector', () => {
     })
 
     it('should handle collection errors gracefully', async () => {
-      const { log } = await import('../../logger.js')
+      const { log } = await import('@/utils/logger.js')
 
       const mockClient = {
         startJSCoverage: vi.fn().mockResolvedValue(undefined),
@@ -236,7 +236,7 @@ describe('DevModeServerCollector', () => {
       const { CDPClient } = await import('monocart-coverage-reports')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
-      const { safeClose } = await import('../../logger.js')
+      const { safeClose } = await import('@/utils/logger.js')
 
       await collector.connect()
       await collector.collect()
