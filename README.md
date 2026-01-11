@@ -784,34 +784,19 @@ Use `--no-strip` if you need to preserve the original coverage data.
 
 See [Merging with Vitest Coverage](#merging-with-vitest-coverage) for detailed documentation.
 
-### `nextcov check` - Detect V8 Coverage Blind Spots
+### `nextcov check` - Check Project Configuration
 
-Scan your codebase for JSX patterns that V8 cannot track for branch coverage, and check project configuration for issues that affect V8 coverage accuracy.
+Check project configuration for issues that affect V8 coverage accuracy.
 
 ```bash
-# Config only (no source paths)
+# Run config check
 npx nextcov check
 
-# Config + source code scan
-npx nextcov check src/
-
-# Source code only (skip config)
-npx nextcov check src/ --skip-config
-
-# Scan specific files or directories
-npx nextcov check src/components src/app
-
-# Show code snippets
-npx nextcov check src/ --verbose
-
 # JSON output for CI
-npx nextcov check src/ --json
+npx nextcov check --json
 
-# Warning mode (don't fail CI)
-npx nextcov check src/ --ignore-patterns
-
-# Ignore specific patterns
-npx nextcov check src/ --ignore '**/generated/**'
+# Verbose output
+npx nextcov check --verbose
 ```
 
 **Project configuration checks:**
@@ -827,185 +812,9 @@ npx nextcov check src/ --ignore '**/generated/**'
 | Vitest not found | info | Recommended for V8 coverage |
 
 **Exit codes:**
-- `0` - No issues found (or `--ignore-patterns` used)
-- `1` - Config errors or code issues found
-- `2` - Error during scanning
-
-See [Detecting V8 Coverage Blind Spots](#detecting-v8-coverage-blind-spots) for detailed documentation.
-
-## Detecting V8 Coverage Blind Spots
-
-nextcov includes a `check` command to scan your codebase for JSX patterns that V8 cannot track for branch coverage. This helps you identify code that may appear uncovered even when fully tested.
-
-### The Problem
-
-V8 coverage has a limitation with conditional JSX rendering patterns:
-
-```tsx
-// These patterns are NOT tracked by V8 for branch coverage
-function MyComponent({ error, user }) {
-  return (
-    <div>
-      {error && <ErrorMessage message={error} />}
-      {user ? <LoggedIn /> : <LoggedOut />}
-    </div>
-  )
-}
-```
-
-Even if your tests exercise both the `error` and `no error` paths, V8 will not track these as branches. This creates blind spots in your coverage reports.
-
-### Using `nextcov check`
-
-Scan your codebase to find these patterns:
-
-```bash
-# Scan entire src directory
-npx nextcov check src/
-
-# Scan specific files or directories
-npx nextcov check src/components src/app
-
-# Show code snippets for each issue
-npx nextcov check src/ --verbose
-
-# Output as JSON for CI integration
-npx nextcov check src/ --json
-
-# Don't fail CI build (just show warnings)
-npx nextcov check src/ --ignore-patterns
-```
-
-### Example Output
-
-```
-Project Configuration:
-────────────────────────────────────────────────────────────
-  ✗ Browserslist targets outdated browsers - chrome 60 does not support ?? and ?.
-    Minimum required: chrome 111, edge 111, firefox 111, safari 16.4
-  ✗ Babel detected - may transpile modern syntax
-    babel.config.js
-  ⚠ Jest detected - consider using Vitest for V8 coverage
-    jest.config.ts
-  ⚠ Source maps not enabled in next.config
-  ℹ Vitest not found in devDependencies
-
-V8 Coverage Readiness Check
-════════════════════════════════════════════════════════════
-
-V8 Coverage Blind Spots Found:
-────────────────────────────────────────────────────────────
-
-src/components/ReviewForm.tsx:69:9
-  ⚠ JSX logical AND (V8 cannot track branch coverage)
-
-src/components/ui/Input.tsx:25:26
-  ⚠ JSX ternary operator (V8 cannot track branch coverage)
-
-────────────────────────────────────────────────────────────
-Found 2 issues in 2 files
-Scanned 43 files
-
-These patterns cannot be tracked by V8 coverage.
-Consider extracting to separate components with if/else.
-
-Learn more: https://github.com/stevez/nextcov#v8-coverage-limitations
-```
-
-### CLI Reference
-
-```
-Usage: npx nextcov check [paths...] [options]
-
-Scan project config and codebase for V8 coverage issues.
-
-Arguments:
-  paths                   Files or directories to scan (if omitted, config-only check)
-
-Options:
-  --skip-config          Skip project configuration checks
-  --verbose              Show code snippets in console output
-  --json                 Output results as JSON for CI integration
-  --ignore-patterns      Exit with code 0 even if issues found (show warnings only)
-  --help                 Show this help message
-
-Exit Codes:
-  0    No issues found (or --ignore-patterns used)
-  1    Config errors or code issues found
-  2    Error during scanning
-
-Examples:
-  npx nextcov check              # config only
-  npx nextcov check src/         # config + source code
-  npx nextcov check src/ --skip-config  # source code only
-  npx nextcov check src/components --verbose
-  npx nextcov check src/ --json > coverage-check.json
-  npx nextcov check src/ --ignore-patterns  # CI warnings mode
-```
-
-### The Fix
-
-Refactor JSX conditionals to use variable assignments with ternaries:
-
-```tsx
-// ✓ BEFORE - Not tracked by V8
-function MyComponent({ error, user }) {
-  return (
-    <div>
-      {error && <ErrorMessage message={error} />}
-      {user ? <LoggedIn /> : <LoggedOut />}
-    </div>
-  )
-}
-
-// ✓ AFTER - Properly tracked by V8
-function MyComponent({ error, user }) {
-  const errorMessage = error ? <ErrorMessage message={error} /> : null
-  const userStatus = user ? <LoggedIn /> : <LoggedOut />
-
-  return (
-    <div>
-      {errorMessage}
-      {userStatus}
-    </div>
-  )
-}
-```
-
-**Why this works:**
-- The ternary operator in the variable assignment (`error ? ... : null`) creates a proper branch that V8 tracks
-- The JSX expression container `{errorMessage}` just renders the result, not a conditional
-- Your coverage reports will now accurately show which branches are tested
-
-**Real-world impact:**
-
-After refactoring these patterns in a production app:
-- Before: 433 trackable branch paths
-- After: 445 trackable branch paths
-- Gained: +12 branch paths that V8 can now track
-
-### CI Integration
-
-Add to your CI workflow:
-
-```yaml
-# .github/workflows/ci.yml
-- name: Check for V8 coverage blind spots
-  run: npx nextcov check src/ --json > coverage-check.json
-
-- name: Upload coverage check results
-  uses: actions/upload-artifact@v3
-  with:
-    name: coverage-check
-    path: coverage-check.json
-```
-
-Or fail the build if blind spots are found:
-
-```yaml
-- name: Enforce V8 coverage readiness
-  run: npx nextcov check src/  # exits 1 if issues found
-```
+- `0` - No configuration errors found
+- `1` - Configuration errors found
+- `2` - Error during check
 
 ## API Reference
 
@@ -1202,66 +1011,6 @@ If you notice E2E coverage has more branches than unit tests for the same file, 
 This tells Next.js SWC to preserve `?.` and `??` operators since modern browsers support them natively. After adding this, rebuild your app and branch counts should be consistent.
 
 **Note:** These browser versions match the [Next.js recommended modern targets](https://nextjs.org/docs/architecture/supported-browsers). Adjust based on your actual browser support requirements.
-
-### V8 Does Not Track Ternary Operators and && Patterns Returning JSX
-
-V8 coverage has a known limitation: it does not properly track branch coverage for ternary operators (`? :`) and logical AND (`&&`) patterns when they return JSX.
-
-**The problem:**
-
-```tsx
-// These patterns are NOT tracked by V8 coverage
-function MyComponent({ user }) {
-  return (
-    <div>
-      {user ? <LoggedIn /> : <LoggedOut />}  {/* ternary - not tracked */}
-      {user && <Welcome name={user.name} />}  {/* && pattern - not tracked */}
-    </div>
-  )
-}
-```
-
-V8 sees these as expressions, not branches, so even if your tests exercise both paths, the coverage report may show them as uncovered or only partially covered.
-
-**The solution:** Refactor to use `if` statements with early returns in helper components:
-
-```tsx
-// These patterns ARE properly tracked by V8 coverage
-function UserGreeting({ user }: { user: User | null }) {
-  if (!user) {
-    return <LoggedOut />
-  }
-  return <LoggedIn />
-}
-
-function WelcomeMessage({ user }: { user: User | null }) {
-  if (!user) {
-    return null
-  }
-  return <Welcome name={user.name} />
-}
-
-function MyComponent({ user }) {
-  return (
-    <div>
-      <UserGreeting user={user} />
-      <WelcomeMessage user={user} />
-    </div>
-  )
-}
-```
-
-**Why this works:**
-- `if` statements are recognized as proper branches by V8
-- Each branch path is tracked separately
-- Coverage reports accurately show which branches were executed
-
-**When to refactor:**
-- When you notice branch coverage gaps between unit tests and E2E tests
-- When merged coverage shows uncovered branches that you know are tested
-- When you need accurate branch coverage metrics for CI/CD gates
-
-**Note:** This is a V8 limitation, not a nextcov issue. The same behavior occurs with Vitest's V8 coverage provider. The refactoring pattern shown above ensures consistent, accurate branch coverage across all V8-based coverage tools.
 
 ### Slow Coverage Processing
 

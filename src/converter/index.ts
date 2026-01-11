@@ -31,7 +31,6 @@ import {
 } from './sanitizer.js'
 import {
   fixEmptyStatementMaps,
-  filterJsxArrayMethodCallbacks,
   fixSpuriousBranches,
   removePhantomBranches,
   fixFunctionDeclarationStatements,
@@ -336,9 +335,8 @@ export class CoverageConverter {
       createEmptyCoverage: (filePath, sourceCode) => this.createEmptyCoverage(filePath, sourceCode)
     })
 
-    // Filter JSX array method callbacks to match Vitest's behavior
-    // Vitest's ast-v8-to-istanbul filters these, but browser coverage doesn't
-    await filterJsxArrayMethodCallbacks(normalizedMap)
+    // NOTE: Removed filterJsxArrayMethodCallbacks - Vitest 4.0.16+ now includes
+    // these anonymous callbacks in coverage, so we keep them for consistency
 
     // Fix spurious branches that don't exist in the original source
     // This handles source map artifacts where arithmetic expressions get mapped as branches

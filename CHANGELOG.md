@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2025-01-10
+
+### Changed
+
+- **Upgraded ast-v8-to-istanbul to ^0.3.10** - This version fixes the `getSourceLines` bug that caused incorrect coverage for ternary operators (`? :`) and logical AND (`&&`) patterns in JSX. Branch coverage for these patterns is now properly tracked.
+
+### Removed
+
+- **JSX pattern detection in `check` command** - The `nextcov check` command no longer scans source code for JSX ternary and logical AND patterns, as these are now properly tracked by V8 coverage with ast-v8-to-istanbul 0.3.10.
+  - Removed `--skip-config`, `--ignore-patterns`, and path arguments from `check` command
+  - The `check` command now only validates project configuration (Babel, Jest, browserslist, etc.)
+  - Removed `src/linter/detectors/jsx-patterns.ts` and `src/linter/scanner.ts`
+
+- **JSX array method callback filtering** - Removed `filterJsxArrayMethodCallbacks` which was previously filtering out anonymous arrow functions in `.map()`, `.filter()`, etc. calls. Vitest 4.0.16+ with ast-v8-to-istanbul 0.3.10 now properly includes these callbacks in coverage, so nextcov no longer needs to filter them for consistency.
+
+- **Merge structure selection** - The `merge` command now uses **union strategy** by default, including import statements and `'use client'`/`'use server'` directives in merged coverage totals. This gives you complete coverage metrics that match what vitest reports.
+  - **Without `--strip` (default)**: Uses the source with MORE statements (includes imports/directives from vitest)
+  - **With `--strip`**: Uses E2E-style structure without imports/directives, and also strips them from vitest coverage data
+
+### Fixed
+
+- **Ternary and && coverage** - JSX patterns like `{cond ? <A /> : <B />}` and `{cond && <Component />}` now have accurate branch coverage thanks to ast-v8-to-istanbul 0.3.10 fix.
+
+- **Execution count merging** - Fixed a bug where function and statement execution counts weren't properly merged when multiple coverage sources had equal item counts. Previously, the merger would use the first source (often unit tests with zero counts) instead of properly merging counts from all sources. Now when item counts are equal, the merger prefers the last source (typically E2E) and correctly merges execution counts from all sources.
+
 ## [1.0.0] - 2024-12-27
 
 ### 🎉 Stable Release

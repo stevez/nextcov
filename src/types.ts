@@ -149,6 +149,11 @@ export interface MergerConfig {
   structurePreference?: 'first' | 'last' | 'more-items'
   /** Apply fixes like empty branch handling */
   applyFixes?: boolean
+  /**
+   * When true, use union of all statement structures (includes imports and directives).
+   * When false (default), prefer E2E-style structure without imports/directives.
+   */
+  preferUnion?: boolean
 }
 
 export interface MergeOptions extends MergerConfig {

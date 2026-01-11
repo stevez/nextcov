@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -60,7 +60,7 @@
     "@bcoe/v8-coverage": "^1.0.0",
     "@inquirer/prompts": "^8.1.0",
     "@jridgewell/sourcemap-codec": "^1.4.0",
-    "ast-v8-to-istanbul": "^0.3.0",
+    "ast-v8-to-istanbul": "^0.3.10",
     "chalk": "^4.1.2",
     "convert-source-map": "^2.0.0",
     "glob": "^11.1.0",

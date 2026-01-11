@@ -104,7 +104,6 @@ function parseBrowserVersion(browser: string): { name: string; version: number }
 function checkBrowserslistVersions(cwd: string): ConfigIssue | null {
   try {
     // Dynamic import browserslist - it's a peer dependency
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const browserslist = require('browserslist')
     const browsers: string[] = browserslist(undefined, { path: cwd })
 

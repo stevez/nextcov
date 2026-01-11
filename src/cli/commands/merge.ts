@@ -12,17 +12,13 @@ Usage: npx nextcov merge <dirs...> [options]
 
 Merge multiple coverage directories into a single report.
 
-By default, coverage directives (import statements, 'use client', 'use server')
-are stripped from the coverage data before merging. This ensures accurate merged
-coverage when combining unit/component tests with E2E tests.
-
 Arguments:
   dirs                  Coverage directories to merge (must contain coverage-final.json)
 
 Options:
   -o, --output <dir>    Output directory for merged report (default: ./coverage/merged)
   --reporters <list>    Comma-separated reporters: html,lcov,json,text-summary (default: html,lcov,json,text-summary)
-  --no-strip            Disable stripping of import statements and directives
+  --strip               Strip import statements and directives from coverage data
   --help                Show this help message
 
 Examples:
@@ -52,7 +48,7 @@ export function parseMergeArgs(args: string[]): ParseResult {
   const inputs: string[] = []
   let output = './coverage/merged'
   let reporters = ['html', 'lcov', 'json', 'text-summary']
-  let strip = true // Default: strip is enabled
+  let strip = false // Default: strip is disabled
 
   let i = 0
   while (i < args.length) {
@@ -72,8 +68,8 @@ export function parseMergeArgs(args: string[]): ParseResult {
       } else {
         return { error: `Missing value for ${arg}` }
       }
-    } else if (arg === '--no-strip') {
-      strip = false
+    } else if (arg === '--strip') {
+      strip = true
       i++
     } else if (!arg.startsWith('-')) {
       // Positional argument - treat as input directory
@@ -229,7 +225,9 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
     const { createMerger } = await import('@/merger/index.js')
 
     // Use nextcov's smart merger which handles mismatched statement maps
-    const merger = createMerger({ applyFixes: true })
+    // When strip is enabled, use E2E-style structure (without imports/directives)
+    // When strip is disabled (default), use union of all structures (includes imports/directives)
+    const merger = createMerger({ applyFixes: true, preferUnion: !options.strip })
 
     // Load all coverage files, optionally stripping directives
     const coverageMaps = []
