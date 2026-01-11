@@ -12,6 +12,7 @@ export const DEFAULT_MERGER_CONFIG: MergerConfig = {
   strategy: 'max',
   structurePreference: 'more-items',
   applyFixes: true,
+  preferUnion: true, // Default: include imports and directives in merged coverage
 }
 
 // Types for coverage lookup operations

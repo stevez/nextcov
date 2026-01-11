@@ -201,9 +201,10 @@ export class CoverageMerger {
       return JSON.parse(JSON.stringify(coverages[0]))
     }
 
-    // Find best structure - prefer E2E (without directives) for consistency
-    // E2E coverage is more accurate for totals since it doesn't count directives
-    const bestSource = this.selectBestSource(coverages)
+    // Find best structure based on preferUnion config
+    // If preferUnion is true, prefer source with MORE items (includes imports/directives)
+    // If preferUnion is false, prefer source WITHOUT directives (E2E-style)
+    const bestSource = this.selectBestSource(coverages, this.config.preferUnion ?? true)
     const bestStatements = bestSource
     const bestFunctions = bestSource
     const bestBranches = bestSource
@@ -275,15 +276,21 @@ export class CoverageMerger {
 
   /**
    * Select the best source coverage for structure.
-   * Prefers coverage WITHOUT L1:0 directive statements (E2E-style).
-   * E2E coverage is more accurate because it doesn't count non-executable directives.
+   *
+   * When preferUnion is true (default):
+   *   - Prefer coverage WITH MORE items (includes imports and directives)
+   *   - This gives you the union of all statement structures
+   *
+   * When preferUnion is false (--strip mode):
+   *   - Prefer coverage WITHOUT L1:0 directive statements (E2E-style)
+   *   - E2E coverage is more accurate because it doesn't count non-executable directives
    *
    * Rules:
    * 1. Filter out sources with no coverage data (0 statements AND 0 branches AND 0 functions)
-   * 2. Among remaining sources, prefer those without L1:0 directives
-   * 3. Among sources without directives, prefer the LAST one (E2E by convention)
+   * 2. If preferUnion: prefer source with MORE items
+   * 3. If !preferUnion: prefer source without L1:0 directives, then prefer LAST one
    */
-  private selectBestSource(coverages: FileCoverageData[]): FileCoverageData {
+  private selectBestSource(coverages: FileCoverageData[], preferUnion: boolean = true): FileCoverageData {
     // Helper to count total items (statements + branches + functions)
     const getTotalItems = (cov: FileCoverageData): number => {
       return (
@@ -309,6 +316,22 @@ export class CoverageMerger {
       return nonEmptyWithIndex[0].cov
     }
 
+    // If preferUnion is true, pick the source with MORE items
+    // This includes imports and directives from vitest coverage
+    // When item counts are equal, prefer the LAST source (typically E2E with better execution counts)
+    if (preferUnion) {
+      return nonEmptyWithIndex.reduce((best, current) => {
+        const currentItems = getTotalItems(current.cov)
+        const bestItems = getTotalItems(best.cov)
+        // Prefer more items, or if equal, prefer later source (higher index)
+        if (currentItems > bestItems || (currentItems === bestItems && current.idx > best.idx)) {
+          return current
+        }
+        return best
+      }).cov
+    }
+
+    // preferUnion is false (--strip mode): prefer E2E-style without directives
     // Check which coverages have L1:0 directive statements
     const withDirective: { cov: FileCoverageData; idx: number }[] = []
     const withoutDirective: { cov: FileCoverageData; idx: number }[] = []

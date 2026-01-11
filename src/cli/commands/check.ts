@@ -1,55 +1,27 @@
 /**
  * Check Command
  *
- * Scans codebase for V8 coverage blind spots and configuration issues
+ * Scans project configuration for coverage-related issues
  */
 
-import { scanFiles } from '@/linter/scanner.js'
 import { scanConfig } from '@/linter/config-scanner.js'
-import { printReport, printConfigReport, getCombinedExitCode } from '@/linter/reporter.js'
+import { printConfigReport, getExitCode } from '@/linter/reporter.js'
 
 export interface CheckOptions {
   verbose?: boolean
   json?: boolean
-  ignorePatterns?: boolean
-  ignore?: string[]
-  skipConfig?: boolean
 }
 
-export async function check(paths: string[], options: CheckOptions): Promise<number> {
-  const { verbose = false, json = false, ignorePatterns = false, ignore = [], skipConfig = false } = options
+export async function check(options: CheckOptions): Promise<number> {
+  const { verbose = false, json = false } = options
 
   const cwd = process.cwd()
-  const hasPaths = paths.length > 0
 
   try {
-    let configResult = null
-    let codeResult = null
+    const configResult = scanConfig({ cwd })
+    printConfigReport(configResult, { verbose, json })
 
-    // Run config scan (unless --skip-config)
-    if (!skipConfig) {
-      configResult = scanConfig({ cwd })
-      printConfigReport(configResult, { verbose, json })
-    }
-
-    // Run code scan only if paths are provided
-    if (hasPaths) {
-      codeResult = await scanFiles({
-        paths,
-        cwd,
-        ignore,
-      })
-      printReport(codeResult, { verbose, json })
-    }
-
-    // If no paths and config skipped, nothing to do
-    if (!hasPaths && skipConfig) {
-      console.log('Nothing to check. Provide paths for source scanning or remove --skip-config.')
-      return 0
-    }
-
-    // Return combined exit code
-    return getCombinedExitCode(codeResult, configResult, ignorePatterns)
+    return getExitCode(configResult)
   } catch (error) {
     console.error('Error running check:', error)
     return 2

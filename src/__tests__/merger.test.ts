@@ -379,11 +379,11 @@ describe('CoverageMerger - structure preference', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have 3 statements (last source wins - E2E convention)
+    // Should have 3 statements (more items wins by default, which is also the last source)
     expect(Object.keys(coverage.statementMap).length).toBe(3)
   })
 
-  it('should prefer last source even when it has fewer items', async () => {
+  it('should prefer source with more items by default (preferUnion: true)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1, '1': 1, '2': 1 } },
@@ -395,7 +395,23 @@ describe('CoverageMerger - structure preference', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have 1 statement (last source wins, even with fewer items)
+    // Should have 3 statements (first source has more items)
+    expect(Object.keys(coverage.statementMap).length).toBe(3)
+  })
+
+  it('should prefer last source when preferUnion is false (strip mode)', async () => {
+    const merger = new CoverageMerger({ applyFixes: false, preferUnion: false })
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1, '1': 1, '2': 1 } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 0 } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Should have 1 statement (last source wins when preferUnion is false)
     expect(Object.keys(coverage.statementMap).length).toBe(1)
   })
 })
@@ -658,9 +674,9 @@ describe('printCoverageComparison', () => {
 })
 
 describe('CoverageMerger - merge functions with different structures', () => {
-  it('should prefer last source when statements are provided (E2E convention)', async () => {
+  it('should prefer source with more items by default (preferUnion: true)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
-    // Include statements to trigger structure selection logic
+    // map1 has more functions (3) than map2 (1)
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 }, functions: { '0': 1, '1': 1, '2': 1 } },
     })
@@ -671,13 +687,30 @@ describe('CoverageMerger - merge functions with different structures', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Last source wins (E2E convention) - should have 1 function from map2
+    // More items wins (default preferUnion: true) - should have 3 functions from map1
+    expect(Object.keys(coverage.fnMap).length).toBe(3)
+  })
+
+  it('should prefer last source when preferUnion is false (strip mode)', async () => {
+    const merger = new CoverageMerger({ applyFixes: false, preferUnion: false })
+    // map1 has more functions (3) than map2 (1)
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, functions: { '0': 1, '1': 1, '2': 1 } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, functions: { '0': 1 } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Last source wins when preferUnion: false - should have 1 function from map2
     expect(Object.keys(coverage.fnMap).length).toBe(1)
   })
 
-  it('should prefer last source branches when statements are provided (E2E convention)', async () => {
+  it('should prefer source with more branches by default (preferUnion: true)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
-    // Include statements to trigger structure selection logic
+    // map1 has more branches (2) than map2 (1)
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 }, branches: { '0': [1, 0], '1': [1, 1] } },
     })
@@ -688,7 +721,24 @@ describe('CoverageMerger - merge functions with different structures', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Last source wins (E2E convention) - should have 1 branch from map2
+    // More items wins (default preferUnion: true) - should have 2 branches from map1
+    expect(Object.keys(coverage.branchMap).length).toBe(2)
+  })
+
+  it('should prefer last source branches when preferUnion is false (strip mode)', async () => {
+    const merger = new CoverageMerger({ applyFixes: false, preferUnion: false })
+    // map1 has more branches (2) than map2 (1)
+    const map1 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [1, 0], '1': [1, 1] } },
+    })
+    const map2 = createTestCoverageMap({
+      '/test.ts': { statements: { '0': 1 }, branches: { '0': [0, 1] } },
+    })
+
+    const result = await merger.merge(map1, map2)
+    const coverage = getFileCoverageData(result, '/test.ts')
+
+    // Last source wins when preferUnion: false - should have 1 branch from map2
     expect(Object.keys(coverage.branchMap).length).toBe(1)
   })
 })
