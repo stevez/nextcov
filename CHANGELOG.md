@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-03-05
+
+### Fixed
+
+- **Duplicate .map in error log** - Fixed typo where external source map "not found" message showed `<file>.map.map` instead of `<file>.map` (#51)
+- **Inline source map regex edge case** - Fixed regex capturing trailing `//# sourceURL=...` comments as part of base64 data, causing parse failures (#52)
+
 ## [1.1.0] - 2025-01-10
 
 ### Changed
