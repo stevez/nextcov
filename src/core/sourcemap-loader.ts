@@ -127,7 +127,7 @@ export class SourceMapLoader {
       const mapContent = await fs.readFile(mapFilePath, 'utf-8')
       return JSON.parse(mapContent) as SourceMapData
     } catch (error) {
-      log(`  External map file not found at ${mapFilePath}.map: ${formatError(error)}`)
+      log(`  External map file not found at ${mapFilePath}: ${formatError(error)}`)
     }
 
     // Try inline source map

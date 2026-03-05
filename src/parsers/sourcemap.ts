@@ -32,7 +32,7 @@ export const SOURCE_MAPPING_URL_PATTERN = /\/\/[#@]\s*sourceMappingURL=(.+)$/m
  * Captures the base64-encoded content.
  */
 export const INLINE_SOURCE_MAP_BASE64_PATTERN = new RegExp(
-  `\\/\\/[#@]\\s*sourceMappingURL=${DATA_PREFIX}${APP_JSON};${CHARSET_OPT}${BASE64_SUFFIX}(.+)$`,
+  `\\/\\/[#@]\\s*sourceMappingURL=${DATA_PREFIX}${APP_JSON};${CHARSET_OPT}${BASE64_SUFFIX}([A-Za-z0-9+/=]+)`,
   'm'
 )
 
