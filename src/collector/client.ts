@@ -148,6 +148,11 @@ export class ClientCoverageCollector {
         return true
       }
 
+      // Include file:// URLs (e.g. Chrome extension coverage pre-filtered by caller)
+      if (url.startsWith('file://')) {
+        return true
+      }
+
       return false
     })
   }

@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-03-11
+
+### Added
+
+- **`transformUrl` option for `collectClientCoverage`** - Optional callback to rewrite coverage entry URLs before filtering and saving. Useful for non-Vite environments (e.g., Chrome extensions) where source URLs don't match the expected `http://localhost/src/...` pattern.
+  ```typescript
+  await collectClientCoverage(page, testInfo, use, {
+    transformUrl: (url) => {
+      if (!url.startsWith('chrome-extension://')) return url;
+      return pathToFileURL(path.join(distDir, new URL(url).pathname)).href;
+    },
+  })
+  ```
+
+- **`file://` URL support in `filterAppCoverage`** - Coverage entries with `file://` URLs are now accepted by the app coverage filter, enabling coverage collection from Chrome extensions and other local file sources.
+
 ## [1.1.1] - 2026-03-05
 
 ### Fixed

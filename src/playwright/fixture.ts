@@ -533,14 +533,20 @@ export async function collectClientCoverage(
   page: Page,
   testInfo: TestInfo,
   use: () => Promise<void>,
-  config?: NextcovConfig
+  config?: NextcovConfig & { transformUrl?: (url: string) => string }
 ): Promise<void> {
   await page.coverage.startJSCoverage({ resetOnNavigation: false })
 
   await use()
 
   const jsCoverage = await page.coverage.stopJSCoverage()
-  const appCoverage = filterAppCoverage(jsCoverage)
+
+  // Apply URL transform before filtering (e.g. chrome-extension:// → file://)
+  const entries = config?.transformUrl
+    ? jsCoverage.map(e => ({ ...e, url: config.transformUrl!(e.url) }))
+    : jsCoverage
+
+  const appCoverage = filterAppCoverage(entries)
 
   if (appCoverage.length > 0) {
     const testId = `${testInfo.workerIndex}-${testInfo.testId.replace(/[^a-zA-Z0-9]/g, '-')}`

@@ -14,5 +14,8 @@ export {
   type PlaywrightCoverageOptions,
 } from './fixture.js'
 
+// Re-export client coverage utilities for custom collection workflows
+export { saveClientCoverage, filterAppCoverage } from '@/collector/client.js'
+
 // Re-export loadNextcovConfig for convenience
 export { loadNextcovConfig, resolveNextcovConfig } from '@/utils/config.js'

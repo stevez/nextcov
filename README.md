@@ -847,12 +847,34 @@ await startServerCoverage(config)
 
 Returns `true` if dev mode was detected, `false` for production mode.
 
-#### `collectClientCoverage(page, testInfo, use)`
+#### `collectClientCoverage(page, testInfo, use, config?)`
 
 Collects V8 coverage for a single test. Use in a Playwright fixture.
 
 ```typescript
 await collectClientCoverage(page, testInfo, use)
+```
+
+**Optional config:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `transformUrl` | `(url: string) => string` | Rewrite coverage entry URLs before filtering/saving. Useful for Chrome extensions or other non-Vite environments where source URLs don't match the default pattern. |
+
+**Chrome extension example:**
+
+```typescript
+import { pathToFileURL } from 'node:url'
+
+await collectClientCoverage(page, testInfo, async () => {
+  await page.goto(`chrome-extension://${id}/panel.html`)
+  await use(page)
+}, {
+  transformUrl: (url) => {
+    if (!url.startsWith('chrome-extension://')) return url
+    return pathToFileURL(path.join(distDir, new URL(url).pathname)).href
+  },
+})
 ```
 
 #### `finalizeCoverage(options?)`
