@@ -370,11 +370,11 @@ describe('sanitizer', () => {
       expect(result).toBeUndefined()
     })
 
-    it('should keep bundle when not all sources match exclude patterns', () => {
+    it('should exclude individual sources from mixed bundles', () => {
       const sourceMap: SourceMapData = {
         version: 3,
-        sources: ['src/app/page.tsx', 'src/__tests__/app.test.tsx'],
-        sourcesContent: ['app code', 'test code'],
+        sources: ['src/app/page.tsx', 'src/lib/vendor/parser.ts'],
+        sourcesContent: ['app code', 'vendor parser code'],
         mappings: 'AAAA,CACA',
         names: [],
       }
@@ -382,17 +382,16 @@ describe('sanitizer', () => {
       const options: SanitizerOptions = {
         projectRoot: '/project',
         sourceMapLoader: mockSourceMapLoader as any,
-        excludePatterns: ['**/__tests__/**'],
+        excludePatterns: ['src/lib/vendor/**'],
       }
 
       const result = sanitizeSourceMap(sourceMap, options)
 
-      // Exclude patterns only skip bundles where ALL sources match
-      // This bundle has mixed sources, so it's kept with all sources
+      // Excluded sources should be filtered out, even from mixed bundles
       expect(result).toBeDefined()
-      expect(result!.sources).toHaveLength(2)
+      expect(result!.sources).toHaveLength(1)
       expect(result!.sources).toContain('src/app/page.tsx')
-      expect(result!.sources).toContain('src/__tests__/app.test.tsx')
+      expect(result!.sources).not.toContain('src/lib/vendor/parser.ts')
     })
 
     it('should handle source maps with complex mappings', () => {

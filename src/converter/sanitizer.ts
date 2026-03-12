@@ -80,7 +80,8 @@ export function getSourceRejectionReason(
 
 /**
  * Check if a source path matches any exclude pattern.
- * Used to skip processing bundles that only contain excluded files.
+ * Used to skip entire bundles (when all sources are excluded)
+ * and to filter individual sources from mixed bundles.
  */
 export function isSourceExcluded(sourcePath: string, excludePatterns: string[]): boolean {
   if (excludePatterns.length === 0) return false
@@ -157,9 +158,8 @@ export function sanitizeSourceMap(
     acceptedSources.forEach(s => log(`    ✓ ${s}`))
   }
 
-  // Performance optimization: Skip bundles where ALL valid sources are excluded
-  // This avoids expensive VLQ decode/encode for bundles like middleware.js
-  // where all sources (e.g., middleware.ts) are in the exclude list.
+  // Apply exclude patterns: skip entire bundle if all sources are excluded,
+  // otherwise remove individually excluded sources from mixed bundles.
   if (excludePatterns.length > 0) {
     const validSources = Array.from(validSourceIndices).map(i => sourceMap.sources[i])
     const allExcluded = validSources.every(source => {
@@ -169,6 +169,17 @@ export function sanitizeSourceMap(
     if (allExcluded) {
       log(`  ⏭️ Skipping bundle: all ${validSources.length} sources match exclude patterns`)
       validSources.slice(0, 5).forEach(s => log(`    - ${s.split('/').pop()}`))
+      return undefined
+    }
+    // Remove individually excluded sources from mixed bundles
+    for (const i of Array.from(validSourceIndices)) {
+      const normalized = normalizeSourcePath(sourceMap.sources[i])
+      if (isSourceExcluded(normalized, excludePatterns)) {
+        validSourceIndices.delete(i)
+        log(`  ⏭️ Excluding source from bundle: ${sourceMap.sources[i].split('/').pop()}`)
+      }
+    }
+    if (validSourceIndices.size === 0) {
       return undefined
     }
   }

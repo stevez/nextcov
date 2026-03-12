@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-03-11
+
+### Fixed
+
+- **Exclude patterns now filter individual sources from mixed bundles** - Previously, the `exclude` config option only skipped entire bundles when ALL sources matched an exclude pattern. When excluded files (e.g., `src/lib/vendor/**`) were bundled together with non-excluded files by Vite/webpack, the excluded sources still appeared in the coverage report. Now, individual excluded sources are properly filtered out of mixed bundles, so `exclude` patterns work correctly regardless of how files are bundled.
+
 ## [1.2.0] - 2026-03-11
 
 ### Added
