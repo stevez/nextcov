@@ -49,6 +49,7 @@ Now you can finally see the complete coverage picture for your Next.js applicati
 - **Production mode support** - Works with `next build && next start` using external source maps
 - **Auto-detection** - Automatically detects dev vs production mode, no configuration needed
 - **V8 native coverage** - Uses Node.js built-in `NODE_V8_COVERAGE` for accurate server coverage
+- **In-process coverage** - Collect V8 coverage from code running in the same process (e.g., Playwright mock tests)
 - **Source map support** - Maps bundled code back to original TypeScript/JSX
 - **Vitest compatible** - Output merges seamlessly with Vitest coverage reports
 - **Playwright integration** - Simple fixtures for automatic coverage collection
@@ -116,6 +117,7 @@ During interactive setup, you'll be asked to choose a coverage mode:
 |------|-------------|----------|
 | **Full (client + server)** | Collects both browser and Node.js coverage | Next.js with `next dev` or `next start` |
 | **Client-only** | Only browser coverage, simpler setup | Vite apps, static sites, SPAs, deployed environments |
+| **In-process** | V8 coverage from the test process itself | Playwright mock tests where code under test runs in the same process |
 
 After running `init`, follow the next steps shown to start collecting coverage.
 
@@ -895,6 +897,35 @@ Finalizes coverage collection and generates reports. Call in globalTeardown.
 | `cleanup` | `boolean` | `true` | Clean up temp files |
 | `cdpPort` | `number` | `9230` | CDP port for triggering v8.takeCoverage() |
 | `log` | `boolean` | `false` | Enable verbose logging output |
+
+#### `InProcessV8Collector`
+
+Collects V8 coverage from code running in the current Node.js process. Uses the `inspector/promises` API — no CDP connection or separate server needed.
+
+Ideal for Playwright mock tests where the code under test is imported and executed in the same process as the tests.
+
+```typescript
+import { InProcessV8Collector, saveClientCoverage } from 'nextcov/playwright'
+
+// Worker-scoped Playwright fixture example:
+const collector = new InProcessV8Collector({ include: ['dist/'] })
+await collector.start()
+
+// ... tests run, exercising the code under test ...
+
+const coverage = await collector.collect()
+await saveClientCoverage('server-0', coverage)
+await collector.stop()
+```
+
+**Constructor options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `include` | `string[]` | `[]` (all) | URL substrings to include |
+| `exclude` | `string[]` | `['node_modules']` | URL substrings to exclude |
+
+Coverage entries are saved via `saveClientCoverage()` and automatically picked up by `finalizeCoverage()`.
 
 ### Main API (`nextcov`)
 

@@ -40,6 +40,14 @@ export {
 } from './v8-server.js'
 
 export {
+  // In-process V8 collector (same-process coverage, no CDP)
+  InProcessV8Collector,
+  createInProcessCollector,
+  type InProcessCoverageEntry,
+  type InProcessCollectorConfig,
+} from './in-process.js'
+
+export {
   // CDP utilities
   isCdpPortAvailable,
   connectToCdp,
