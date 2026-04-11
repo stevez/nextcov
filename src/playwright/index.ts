@@ -17,5 +17,8 @@ export {
 // Re-export client coverage utilities for custom collection workflows
 export { saveClientCoverage, filterAppCoverage } from '@/collector/client.js'
 
+// Re-export in-process V8 collector for same-process coverage
+export { InProcessV8Collector, createInProcessCollector, type InProcessCoverageEntry, type InProcessCollectorConfig } from '@/collector/in-process.js'
+
 // Re-export loadNextcovConfig for convenience
 export { loadNextcovConfig, resolveNextcovConfig } from '@/utils/config.js'

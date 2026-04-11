@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-04-11
+
+### Added
+
+- **In-process V8 coverage collector** - New `InProcessV8Collector` class for collecting V8 coverage from the current Node.js process using the `inspector/promises` API. No CDP connection or separate server needed — ideal for Playwright mock tests where the code under test runs in the same process as the tests.
+  ```typescript
+  import { InProcessV8Collector, saveClientCoverage } from 'nextcov/playwright'
+
+  const collector = new InProcessV8Collector({ include: ['dist/'] })
+  await collector.start()
+  // ... run code under test ...
+  const coverage = await collector.collect()
+  await saveClientCoverage('server-0', coverage)
+  await collector.stop()
+  ```
+  Coverage entries match the standard `BaseCoverageEntry` format and can be saved via `saveClientCoverage()` for automatic processing by `finalizeCoverage()`.
+
 ## [1.2.1] - 2026-03-11
 
 ### Fixed
