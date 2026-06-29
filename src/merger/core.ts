@@ -275,20 +275,26 @@ export class CoverageMerger {
   }
 
   /**
-   * Select the best source coverage for structure.
+   * Select the best source coverage structure for merging.
    *
-   * When preferUnion is true (default):
-   *   - Prefer coverage WITH MORE items (includes imports and directives)
-   *   - This gives you the union of all statement structures
+   * NOTE: Hit-count merging in mergeFileCoveragesMax() is already position-based —
+   * it uses buildLookups() which keys by `startLine:startCol`. So hits from all
+   * sources are correctly attributed regardless of which source's structure wins here.
+   * This function only determines WHICH source's statementMap/fnMap/branchMap keys
+   * (integer indices) are used as the output structure.
    *
-   * When preferUnion is false (--strip mode):
-   *   - Prefer coverage WITHOUT L1:0 directive statements (E2E-style)
-   *   - E2E coverage is more accurate because it doesn't count non-executable directives
+   * Ranking (applied in order):
+   *   1. Fewest zero-hit items — avoids phantom zero nodes from Turbopack's extra AST
+   *      entries for static/prerendered pages that were never executed at runtime.
+   *      A source that fully covers a file wins over one with phantom zero nodes.
+   *   2. Most total hits — when both sources fully cover a file, prefer the one with
+   *      more execution (e.g. Vitest ran 1000 assertions vs E2E ran 2 page loads).
+   *   3. More items — when hits are equal, prefer the more granular structure.
+   *   4. Later source — by convention E2E is passed last; for server-only files that
+   *      only E2E covers, it wins naturally (it's the only non-empty candidate).
    *
-   * Rules:
-   * 1. Filter out sources with no coverage data (0 statements AND 0 branches AND 0 functions)
-   * 2. If preferUnion: prefer source with MORE items
-   * 3. If !preferUnion: prefer source without L1:0 directives, then prefer LAST one
+   * When preferUnion is false (--strip mode), sources with L1:0 directive statements
+   * are deprioritised first, then the same ranking applies within the remaining group.
    */
   private selectBestSource(coverages: FileCoverageData[], preferUnion: boolean = true): FileCoverageData {
     // Helper to count total items (statements + branches + functions)
@@ -316,23 +322,37 @@ export class CoverageMerger {
       return nonEmptyWithIndex[0].cov
     }
 
-    // If preferUnion is true, pick the source with MORE items
-    // This includes imports and directives from vitest coverage
-    // When item counts are equal, prefer the LAST source (typically E2E with better execution counts)
-    if (preferUnion) {
-      return nonEmptyWithIndex.reduce((best, current) => {
+    // Rank candidates: fewest zeros → most hits → more items → later source
+    const rankBest = (candidates: { cov: FileCoverageData; idx: number }[]): FileCoverageData => {
+      const getZeroCount = (cov: FileCoverageData): number =>
+        Object.values(cov.s || {}).filter((v) => (v as number) === 0).length +
+        Object.values(cov.f || {}).filter((v) => (v as number) === 0).length
+
+      const getTotalHits = (cov: FileCoverageData): number =>
+        Object.values(cov.s || {}).reduce((sum: number, v) => sum + (v as number), 0) +
+        Object.values(cov.f || {}).reduce((sum: number, v) => sum + (v as number), 0)
+
+      return candidates.reduce((best, current) => {
+        const currentZeros = getZeroCount(current.cov)
+        const bestZeros = getZeroCount(best.cov)
+        if (currentZeros < bestZeros) return current
+        if (currentZeros > bestZeros) return best
+        const currentHits = getTotalHits(current.cov)
+        const bestHits = getTotalHits(best.cov)
+        if (currentHits > bestHits) return current
+        if (currentHits < bestHits) return best
         const currentItems = getTotalItems(current.cov)
         const bestItems = getTotalItems(best.cov)
-        // Prefer more items, or if equal, prefer later source (higher index)
-        if (currentItems > bestItems || (currentItems === bestItems && current.idx > best.idx)) {
-          return current
-        }
+        if (currentItems > bestItems || (currentItems === bestItems && current.idx > best.idx)) return current
         return best
       }).cov
     }
 
-    // preferUnion is false (--strip mode): prefer E2E-style without directives
-    // Check which coverages have L1:0 directive statements
+    if (preferUnion) {
+      return rankBest(nonEmptyWithIndex)
+    }
+
+    // preferUnion is false (--strip mode): deprioritise sources with L1:0 directive statements
     const withDirective: { cov: FileCoverageData; idx: number }[] = []
     const withoutDirective: { cov: FileCoverageData; idx: number }[] = []
 
@@ -350,20 +370,12 @@ export class CoverageMerger {
       }
     }
 
-    // Prefer coverage without directive (E2E-style)
     if (withoutDirective.length > 0) {
-      // Among sources without directives, prefer the LAST one in the original array
-      // By convention, E2E is passed last when merging
-      const lastItem = withoutDirective.reduce((best, current) =>
-        current.idx > best.idx ? current : best
-      )
-      return lastItem.cov
+      return rankBest(withoutDirective)
     }
 
-    // All non-empty sources have directives - pick the one with fewer items (less directive inflation)
-    return nonEmptyWithIndex.reduce((best, current) =>
-      getTotalItems(current.cov) < getTotalItems(best.cov) ? current : best
-    ).cov
+    // All non-empty sources have directives - apply same ranking
+    return rankBest(nonEmptyWithIndex)
   }
 
   /**

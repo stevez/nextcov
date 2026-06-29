@@ -137,9 +137,10 @@ export class ClientCoverageCollector {
 
       // Include Next.js chunks
       if (isNextChunksUrl(normalizedUrl)) {
-        // Exclude vendor chunks (numeric prefixes like 878-xxx.js)
+        // Exclude vendor chunks with purely numeric prefixes (e.g. 878-xxx.js).
+        // Do NOT exclude hashed chunks that merely start with a digit (e.g. 02ec7w~yl_u_a.js).
         const filename = normalizedUrl.split('/').pop() || ''
-        if (/^\d+/.test(filename)) return false
+        if (/^\d+-/.test(filename)) return false
         return true
       }
 

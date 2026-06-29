@@ -367,8 +367,9 @@ describe('CoverageMerger - fixes', () => {
 })
 
 describe('CoverageMerger - structure preference', () => {
-  it('should prefer last source structure (E2E convention)', async () => {
+  it('should prefer source with fewest zero-hit statements (fewest-zeros strategy)', async () => {
     const merger = new CoverageMerger({ applyFixes: false })
+    // map1 has 1 statement with 0 zeros; map2 has 3 statements with 1 zero
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 } },
     })
@@ -379,8 +380,8 @@ describe('CoverageMerger - structure preference', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have 3 statements (more items wins by default, which is also the last source)
-    expect(Object.keys(coverage.statementMap).length).toBe(3)
+    // map1 wins (0 zeros < 1 zero) — fewest-zeros strategy picks the more fully-covered skeleton
+    expect(Object.keys(coverage.statementMap).length).toBe(1)
   })
 
   it('should prefer source with more items by default (preferUnion: true)', async () => {
@@ -399,8 +400,9 @@ describe('CoverageMerger - structure preference', () => {
     expect(Object.keys(coverage.statementMap).length).toBe(3)
   })
 
-  it('should prefer last source when preferUnion is false (strip mode)', async () => {
+  it('should still prefer fewest zeros when preferUnion is false (strip mode)', async () => {
     const merger = new CoverageMerger({ applyFixes: false, preferUnion: false })
+    // map1 has 3 fully-hit statements (0 zeros); map2 has 1 zero-hit statement
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1, '1': 1, '2': 1 } },
     })
@@ -411,8 +413,8 @@ describe('CoverageMerger - structure preference', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Should have 1 statement (last source wins when preferUnion is false)
-    expect(Object.keys(coverage.statementMap).length).toBe(1)
+    // map1 wins (0 zeros < 1 zero) — fewest-zeros applies in strip mode too
+    expect(Object.keys(coverage.statementMap).length).toBe(3)
   })
 })
 
@@ -691,9 +693,9 @@ describe('CoverageMerger - merge functions with different structures', () => {
     expect(Object.keys(coverage.fnMap).length).toBe(3)
   })
 
-  it('should prefer last source when preferUnion is false (strip mode)', async () => {
+  it('should prefer source with more hits when zeros are tied (strip mode)', async () => {
     const merger = new CoverageMerger({ applyFixes: false, preferUnion: false })
-    // map1 has more functions (3) than map2 (1)
+    // Both sources have 0 zeros; map1 has more total hits (4 vs 2) so map1 wins
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 }, functions: { '0': 1, '1': 1, '2': 1 } },
     })
@@ -704,8 +706,8 @@ describe('CoverageMerger - merge functions with different structures', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Last source wins when preferUnion: false - should have 1 function from map2
-    expect(Object.keys(coverage.fnMap).length).toBe(1)
+    // map1 wins (tied zeros, map1 hits=4 > map2 hits=2) — should have 3 functions from map1
+    expect(Object.keys(coverage.fnMap).length).toBe(3)
   })
 
   it('should prefer source with more branches by default (preferUnion: true)', async () => {
@@ -725,9 +727,9 @@ describe('CoverageMerger - merge functions with different structures', () => {
     expect(Object.keys(coverage.branchMap).length).toBe(2)
   })
 
-  it('should prefer last source branches when preferUnion is false (strip mode)', async () => {
+  it('should prefer source with more items when zeros and hits are tied (strip mode)', async () => {
     const merger = new CoverageMerger({ applyFixes: false, preferUnion: false })
-    // map1 has more branches (2) than map2 (1)
+    // Both sources have same stmt zeros/hits; map1 has 2 branches vs map2 has 1
     const map1 = createTestCoverageMap({
       '/test.ts': { statements: { '0': 1 }, branches: { '0': [1, 0], '1': [1, 1] } },
     })
@@ -738,8 +740,8 @@ describe('CoverageMerger - merge functions with different structures', () => {
     const result = await merger.merge(map1, map2)
     const coverage = getFileCoverageData(result, '/test.ts')
 
-    // Last source wins when preferUnion: false - should have 1 branch from map2
-    expect(Object.keys(coverage.branchMap).length).toBe(1)
+    // map1 wins (tied zeros and hits, map1 totalItems=3 > map2 totalItems=2) — 2 branches from map1
+    expect(Object.keys(coverage.branchMap).length).toBe(2)
   })
 })
 

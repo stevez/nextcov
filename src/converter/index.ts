@@ -35,6 +35,7 @@ import {
   removePhantomBranches,
   fixFunctionDeclarationStatements,
   removeDuplicateFunctionEntries,
+  fixInvertedRanges,
 } from './coverage-fixes.js'
 
 // Handle ESM/CJS interop for default exports
@@ -355,6 +356,12 @@ export class CoverageConverter {
     // Remove duplicate function entries created by V8 CDP for arrow function exports
     // This fixes incorrect function coverage percentages (e.g., 4/6 = 66% instead of 3/3 = 100%)
     removeDuplicateFunctionEntries(normalizedMap)
+
+    // Fix inverted statement/function ranges produced by Turbopack's function inlining.
+    // Turbopack (Next.js 14+ dev, Next.js 16+ production) sometimes emits source map
+    // segments that jump backwards, producing ranges where end.line < start.line.
+    // Clamp these to zero-width ranges so they don't appear as phantom uncovered statements.
+    fixInvertedRanges(normalizedMap)
 
     endConvert()
     return normalizedMap
