@@ -61,6 +61,20 @@ describe('webpack parser', () => {
     it('should handle combined transformations', () => {
       expect(normalizeWebpackSourcePath('webpack://_N_E/./src/app/page.tsx?xxxx')).toBe('src/app/page.tsx')
     })
+
+    it('should strip turbopack:///[project]/ prefix (Next.js 14+ dev, Next.js 16+ production)', () => {
+      expect(normalizeWebpackSourcePath('turbopack:///[project]/src/app/page.tsx')).toBe('src/app/page.tsx')
+      expect(normalizeWebpackSourcePath('turbopack:///[project]/src/components/Button.tsx')).toBe('src/components/Button.tsx')
+      expect(normalizeWebpackSourcePath('turbopack:///[project]/src/lib/utils.ts')).toBe('src/lib/utils.ts')
+    })
+
+    it('should strip turbopack:///[root-of-the-server]/ prefix', () => {
+      expect(normalizeWebpackSourcePath('turbopack:///[root-of-the-server]/src/app/layout.tsx')).toBe('src/app/layout.tsx')
+    })
+
+    it('should strip any turbopack:/// virtual segment prefix', () => {
+      expect(normalizeWebpackSourcePath('turbopack:///[turbopack-node]/src/utils.ts')).toBe('src/utils.ts')
+    })
   })
 
   describe('extractWebpackModulePath', () => {

@@ -593,6 +593,58 @@ export function removePhantomBranches(coverageMap: CoverageMap): void {
 }
 
 /**
+ * Fix inverted source ranges produced by Turbopack's function inlining.
+ *
+ * When Turbopack (Next.js 14+ dev, Next.js 16+ production) inlines small
+ * helper functions into call sites, the resulting source map can have segments
+ * that jump backwards. The `ast-v8-to-istanbul` converter uses these segment
+ * boundaries as statement/function ranges, yielding entries where
+ * `end.line < start.line` (e.g. `L104:2 → L33:?`).
+ *
+ * `istanbul-lib-coverage` interprets these as uncovered zero-length ranges,
+ * which inflates uncovered statement counts in the HTML report. We clamp them
+ * to zero-width ranges (end = start) so they don't appear as separate uncovered
+ * statements while preserving the original hit count.
+ *
+ * Affected Next.js versions: 14+ (dev), 16+ (production Turbopack build).
+ * Not needed for Next.js 14/15 webpack production builds.
+ */
+export function fixInvertedRanges(coverageMap: CoverageMap): void {
+  type Loc = { start: { line: number; column: number | null }; end: { line: number | null; column: number | null } }
+
+  const clamp = (loc: Loc): void => {
+    if (loc.end.line !== null && loc.end.line < loc.start.line) {
+      loc.end.line = loc.start.line
+      loc.end.column = loc.start.column
+    }
+  }
+
+  for (const filePath of coverageMap.files()) {
+    const fileCoverage = coverageMap.fileCoverageFor(filePath)
+    const data = (fileCoverage as unknown as { data: CoverageMapData[string] }).data
+
+    const statementMap = data.statementMap as Record<string, Loc>
+    for (const loc of Object.values(statementMap)) {
+      clamp(loc)
+    }
+
+    const fnMap = data.fnMap as Record<string, { loc: Loc; decl?: Loc }>
+    for (const fn of Object.values(fnMap)) {
+      clamp(fn.loc)
+      if (fn.decl) clamp(fn.decl)
+    }
+
+    const branchMap = data.branchMap as Record<string, { loc?: Loc; locations?: Loc[] }>
+    for (const branch of Object.values(branchMap)) {
+      if (branch.loc) clamp(branch.loc)
+      for (const loc of branch.locations ?? []) {
+        clamp(loc)
+      }
+    }
+  }
+}
+
+/**
  * Fix function declaration statements that have 0 hits but the function has calls.
  *
  * Next.js 15 inserts TURBOPACK_DISABLE_EXPORT_MERGING comments in server actions:

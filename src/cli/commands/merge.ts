@@ -263,9 +263,20 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
       console.log(`   Stripped: ${totalImportsRemoved} imports, ${totalDirectivesRemoved} directives`)
     }
 
+    // Rebase coarser-structured maps onto the richest available structure.
+    // This corrects Turbopack E2E coverage whose statement count is lower than
+    // the Vite/esbuild-instrumented unit/component coverage for the same files.
+    // No-op for webpack/Next.js 14-15 projects where all inputs share the same structure.
+    const { rebaseCoarserMaps, countRebasedFiles } = await import('@/merger/rebase.js')
+    const rebasedMaps = rebaseCoarserMaps(coverageMaps)
+    const rebasedCount = countRebasedFiles(coverageMaps, rebasedMaps)
+    if (rebasedCount > 0) {
+      console.log(`   Rebased: ${rebasedCount} files (Turbopack → Vite structure)`)
+    }
+
     // Merge all coverage maps using the merger's merge method
     // This uses the "max" strategy with "more items wins" for structure
-    const mergedMap = await merger.merge(...coverageMaps)
+    const mergedMap = await merger.merge(...rebasedMaps)
 
     // Generate reports
     const absoluteOutput = resolve(process.cwd(), options.output)
