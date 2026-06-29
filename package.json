@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -49,7 +49,7 @@
     "vitest"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "peerDependencies": {
     "@playwright/test": "^1.40.0"

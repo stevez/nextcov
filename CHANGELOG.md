@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-06-29
+
+### Fixed
+
+- **Vite 8 Node.js engine requirement** - Updated `engines.node` from `>=20.0.0` to `>=20.19.0` to reflect the actual minimum required by the vite 8 dependency (`^20.19.0 || >=22.12.0`).
+
+### Changed
+
+- **Upgrade vite** `^6.0.0` → `^8.1.0` to address security vulnerabilities in vite 6's dependency tree.
+
+- **Enable Dependabot** for weekly npm dependency update PRs, grouped into production and dev dependency batches.
+
 ## [1.4.0] - 2026-06-29
 
 ### Added
