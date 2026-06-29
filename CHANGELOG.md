@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-06-29
+
+### Added
+
+- **Next.js 16 Turbopack production support** - Coverage collection and source map path normalization now handle `turbopack:///[project]/...` and `turbopack:///[root-of-the-server]/...` URL schemes emitted by Next.js 14+ dev mode and Next.js 16+ production Turbopack builds. Previously these paths fell through to the regex fallback and were silently dropped in some cases.
+
+- **Automatic E2E coverage structure rebase** - `nextcov merge` now automatically rebases coarser-structured E2E maps onto the richest available structure before merging. When Next.js 16 Turbopack's production optimizer collapses adjacent AST nodes, E2E coverage reports fewer Istanbul statements than the Vite/esbuild-instrumented unit/component coverage for the same files — inflating E2E-only percentages (e.g. 55% instead of 37%). The rebase step remaps E2E hit counts by `line:col` position onto the richer Vitest structure, restoring accurate denominators. No-op for webpack/Next.js 14-15 and Vite projects where all inputs already share the same structure. No configuration required.
+
+### Fixed
+
+- **Hashed chunk filter regression (Next.js 16 / Turbopack)** - The client coverage collector was incorrectly filtering out Turbopack app chunks whose content-hash started with a digit (e.g. `02ec7w~yl_u_a.js`). The chunk-exclusion regex was tightened from `/^\d+/` to `/^\d+-/` so only webpack-style vendor/lazy chunks (`878-abcdef.js`) are excluded. No impact on Next.js 14/15 webpack production builds.
+
+- **Inverted source-map ranges (Turbopack function inlining)** - Turbopack's function inlining can produce source-map segments that jump backwards, causing `ast-v8-to-istanbul` to emit statement/function/branch ranges where `end.line < start.line`. These appeared as phantom uncovered statements in HTML reports. They are now clamped to zero-width (`end = start`) — hit counts are preserved; phantom uncovered entries are eliminated. No-op for webpack builds.
+
+- **Merge structure selection (fewest-zeros strategy)** - `selectBestSource` now picks the coverage skeleton with the **fewest zero-hit statements** rather than the most total items. This ensures that when merging Vitest (unit + component) coverage with E2E coverage, the Vitest-instrumented skeleton (which has the correct source-accurate AST granularity) is always preferred over Turbopack's coarser compiled structure. Tie-breaking: fewest zeros → most hits → more items → later source.
+
 ## [1.3.0] - 2026-04-11
 
 ### Added

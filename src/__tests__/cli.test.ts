@@ -42,6 +42,11 @@ vi.mock('../merger/index.js', () => ({
   }),
 }))
 
+vi.mock('../merger/rebase.js', () => ({
+  rebaseCoarserMaps: (maps: unknown[]) => maps,
+  countRebasedFiles: () => 0,
+}))
+
 describe('CLI merge command', () => {
   describe('MERGE_HELP constant', () => {
     it('should contain usage information', () => {

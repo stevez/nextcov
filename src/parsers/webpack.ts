@@ -37,15 +37,33 @@ export const WEBPACK_PREFIX_PATTERN = /^webpack:\/\/[^/]*\//
 export const WEBPACK_INTERNAL_MODULE_PATTERN = /webpack-internal:\/\/\/\([^)]+\)\/(.+)/
 
 /**
- * Normalize a webpack source path to a relative path.
- * Handles webpack:// prefixes, _N_E/ prefixes, query strings, and leading ./
+ * Normalize a webpack or turbopack source path to a relative path.
+ * Handles webpack:// prefixes, turbopack:/// prefixes, _N_E/ prefixes,
+ * query strings, and leading ./
+ *
+ * Supports:
+ * - Next.js 14/15 webpack production: `webpack://_N_E/./src/app/page.tsx`
+ * - Next.js 14/15/16 turbopack dev:   `turbopack:///[project]/src/app/page.tsx`
+ * - Next.js 16 turbopack production:   `turbopack:///[project]/src/app/page.tsx`
  *
  * @example
  * normalizeWebpackSourcePath('webpack://_N_E/./src/app/page.tsx?xxxx')
  * // Returns: 'src/app/page.tsx'
+ * normalizeWebpackSourcePath('turbopack:///[project]/src/app/page.tsx')
+ * // Returns: 'src/app/page.tsx'
  */
 export function normalizeWebpackSourcePath(sourcePath: string): string {
   let path = sourcePath
+
+  // Remove turbopack:// prefix (Next.js 14+ dev mode and Next.js 16+ production).
+  // Turbopack uses virtual path segments in brackets: [project], [root-of-the-server], etc.
+  // e.g. turbopack:///[project]/src/app/page.tsx   → src/app/page.tsx
+  //      turbopack:///[root-of-the-server]/src/... → src/...
+  if (path.startsWith('turbopack:///')) {
+    path = path.slice('turbopack:///'.length)
+    // Strip the leading virtual segment like [project]/, [root-of-the-server]/, etc.
+    path = path.replace(/^\[[^\]]+\]\//, '')
+  }
 
   // Remove webpack:// prefix (e.g., webpack://_N_E/, webpack://app/)
   path = path.replace(WEBPACK_PREFIX_PATTERN, '')
