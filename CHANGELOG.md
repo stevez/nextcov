@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.3] - 2026-06-30
+
+### Changed
+
+- **Bump dev dependencies** — Updated `@eslint/js`, `eslint`, `typescript-eslint`, `@playwright/test`, `@types/node`, `rimraf`, and `tsc-alias` to latest versions.
+
+### Fixed
+
+- **Pin TypeScript to `^5`** — TypeScript 6 breaks tsup 8.x's DTS generation (`rollup-plugin-dts` does not yet support TS6), causing `.d.ts` files to be silently omitted from the build output. TypeScript is pinned to `^5` until tsup adds TS6 support.
+
 ## [1.4.2] - 2026-06-30
 
 ### Added
