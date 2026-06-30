@@ -97,6 +97,7 @@ export interface MergeResult {
 export interface StripResult {
   importsRemoved: number
   directivesRemoved: number
+  ignoredRemoved: number
 }
 
 /**
@@ -109,10 +110,12 @@ export interface StripResult {
  * - import statements (import ... from '...')
  * - 'use server' directives
  * - 'use client' directives
+ * - lines annotated with c8 ignore / istanbul ignore hints
  */
 export function stripCoverageDirectives(coverageJson: Record<string, FileCoverageData>): StripResult {
   let importsRemoved = 0
   let directivesRemoved = 0
+  let ignoredRemoved = 0
 
   for (const [file, data] of Object.entries(coverageJson)) {
     // Read source file to check line content
@@ -124,8 +127,27 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
       continue
     }
 
+    // Collect line numbers covered by c8/istanbul ignore hints
+    const ignoredLines = new Set<number>()
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      // /* c8 ignore next */ or // c8 ignore next (and istanbul variants)
+      if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+(next|next\s+\d+)/.test(trimmed)) {
+        ignoredLines.add(i + 2) // 1-indexed: the NEXT line
+      }
+      // /* c8 ignore start */ ... /* c8 ignore stop */ blocks
+      if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+start/.test(trimmed)) {
+        let j = i + 1
+        while (j < lines.length) {
+          ignoredLines.add(j + 1)
+          if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+stop/.test(lines[j].trim())) break
+          j++
+        }
+      }
+    }
+
     // Find statement keys to remove
-    const keysToRemove: Array<{ key: string; type: 'import' | 'directive' }> = []
+    const keysToRemove: Array<{ key: string; type: 'import' | 'directive' | 'ignored' }> = []
     for (const [key, stmt] of Object.entries(data.statementMap || {})) {
       const lineNum = stmt.start.line
       const lineContent = lines[lineNum - 1]?.trim() || ''
@@ -143,6 +165,10 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
       ) {
         keysToRemove.push({ key, type: 'directive' })
       }
+      // Check if line is covered by a c8/istanbul ignore hint
+      else if (ignoredLines.has(lineNum)) {
+        keysToRemove.push({ key, type: 'ignored' })
+      }
     }
 
     // Remove statements
@@ -151,18 +177,32 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
       delete data.s[key]
       if (type === 'import') {
         importsRemoved++
-      } else {
+      } else if (type === 'directive') {
         directivesRemoved++
+      } else {
+        ignoredRemoved++
+      }
+    }
+
+    // Remove branches on ignored lines
+    for (const [key, branchMeta] of Object.entries(data.branchMap || {})) {
+      const branchLine = branchMeta.loc?.start?.line
+      if (branchLine !== undefined && ignoredLines.has(branchLine)) {
+        delete (data.branchMap as Record<string, unknown>)[key]
+        delete (data.b as Record<string, unknown>)[key]
+        ignoredRemoved++
       }
     }
   }
 
-  return { importsRemoved, directivesRemoved }
+  return { importsRemoved, directivesRemoved, ignoredRemoved }
 }
 
 interface FileCoverageData {
   statementMap: Record<string, { start: { line: number } }>
   s: Record<string, number>
+  branchMap?: Record<string, { loc?: { start?: { line?: number } } }>
+  b?: Record<string, number[]>
   [key: string]: unknown
 }
 
@@ -233,6 +273,7 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
     const coverageMaps = []
     let totalImportsRemoved = 0
     let totalDirectivesRemoved = 0
+    let totalIgnoredRemoved = 0
 
     for (const file of coverageFiles) {
       console.log(`   Loading: ${file}`)
@@ -240,9 +281,10 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
       // Load raw JSON for stripping if enabled
       if (options.strip) {
         const rawJson = JSON.parse(readFileSync(file, 'utf-8'))
-        const { importsRemoved, directivesRemoved } = stripCoverageDirectives(rawJson)
+        const { importsRemoved, directivesRemoved, ignoredRemoved } = stripCoverageDirectives(rawJson)
         totalImportsRemoved += importsRemoved
         totalDirectivesRemoved += directivesRemoved
+        totalIgnoredRemoved += ignoredRemoved
 
         // Load the stripped data into a coverage map
         const map = await merger.loadCoverageData(rawJson)
@@ -259,8 +301,8 @@ export async function executeMerge(options: MergeOptions): Promise<MergeResult> 
       }
     }
 
-    if (options.strip && (totalImportsRemoved > 0 || totalDirectivesRemoved > 0)) {
-      console.log(`   Stripped: ${totalImportsRemoved} imports, ${totalDirectivesRemoved} directives`)
+    if (options.strip && (totalImportsRemoved > 0 || totalDirectivesRemoved > 0 || totalIgnoredRemoved > 0)) {
+      console.log(`   Stripped: ${totalImportsRemoved} imports, ${totalDirectivesRemoved} directives, ${totalIgnoredRemoved} ignored`)
     }
 
     // Rebase coarser-structured maps onto the richest available structure.
