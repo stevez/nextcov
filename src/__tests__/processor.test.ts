@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import libCoverage from 'istanbul-lib-coverage'
-import { CoverageProcessor } from '../core/processor.js'
+import { CoverageProcessor, stripC8IgnoreLines } from '../core/processor.js'
 
 const isWindows = process.platform === 'win32'
 const projectRoot = isWindows ? 'C:/project' : '/project'
@@ -314,5 +314,295 @@ describe('CoverageProcessor', () => {
       expect(totalHits).toBeGreaterThan(0)
       consoleSpy.mockRestore()
     })
+  })
+})
+
+describe('stripC8IgnoreLines', () => {
+  let testDir: string
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `strip-c8-test-${Date.now()}`)
+    await fs.mkdir(testDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(testDir, { recursive: true, force: true })
+    } catch { /* ignore */ }
+  })
+
+  function makeMap(filePath: string, coverageData: object) {
+    return libCoverage.createCoverageMap({ [filePath]: coverageData as never })
+  }
+
+  it('removes statement on the line after // c8 ignore next (bare form)', async () => {
+    const filePath = join(testDir, 'a.ts')
+    await fs.writeFile(filePath, [
+      'const a = 1',      // line 1
+      '// c8 ignore next', // line 2
+      'const b = 2',      // line 3 — ignored
+      'const c = 3',      // line 4
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+        '1': { start: { line: 3, column: 0 }, end: { line: 3, column: 12 } },
+        '2': { start: { line: 4, column: 0 }, end: { line: 4, column: 12 } },
+      },
+      s: { '0': 1, '1': 5, '2': 3 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      statementMap: Record<string, unknown>
+      s: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeDefined()    // line 1 — kept
+    expect(data.statementMap['1']).toBeUndefined()  // line 3 — removed
+    expect(data.s['1']).toBeUndefined()
+    expect(data.statementMap['2']).toBeDefined()    // line 4 — kept
+  })
+
+  it('removes statement after // istanbul ignore next', async () => {
+    const filePath = join(testDir, 'b.ts')
+    await fs.writeFile(filePath, [
+      'const a = 1',
+      '// istanbul ignore next',
+      'const b = 2',
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+        '1': { start: { line: 3, column: 0 }, end: { line: 3, column: 12 } },
+      },
+      s: { '0': 2, '1': 2 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      statementMap: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeDefined()
+    expect(data.statementMap['1']).toBeUndefined()
+  })
+
+  it('removes statement after /* c8 ignore next */ (block comment form)', async () => {
+    const filePath = join(testDir, 'c.ts')
+    await fs.writeFile(filePath, [
+      'const a = 1',
+      '/* c8 ignore next */',
+      'const b = 2',
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+        '1': { start: { line: 3, column: 0 }, end: { line: 3, column: 12 } },
+      },
+      s: { '0': 1, '1': 1 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      statementMap: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeDefined()
+    expect(data.statementMap['1']).toBeUndefined()
+  })
+
+  it('removes statements inside /* c8 ignore start */ ... /* c8 ignore stop */ block', async () => {
+    const filePath = join(testDir, 'd.ts')
+    await fs.writeFile(filePath, [
+      'const a = 1',          // line 1
+      '/* c8 ignore start */', // line 2 — start comment, NOT ignored
+      'const b = 2',          // line 3 — ignored
+      'const c = 3',          // line 4 — ignored
+      '/* c8 ignore stop */', // line 5 — also ignored (stop line is included)
+      'const d = 4',          // line 6 — NOT ignored
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+        '1': { start: { line: 3, column: 0 }, end: { line: 3, column: 12 } },
+        '2': { start: { line: 4, column: 0 }, end: { line: 4, column: 12 } },
+        '3': { start: { line: 6, column: 0 }, end: { line: 6, column: 12 } },
+      },
+      s: { '0': 1, '1': 1, '2': 1, '3': 1 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      statementMap: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeDefined()    // line 1 — kept
+    expect(data.statementMap['1']).toBeUndefined()  // line 3 — removed
+    expect(data.statementMap['2']).toBeUndefined()  // line 4 — removed
+    expect(data.statementMap['3']).toBeDefined()    // line 6 — kept
+  })
+
+  it('does NOT remove statement on the /* c8 ignore start */ line itself', async () => {
+    const filePath = join(testDir, 'e.ts')
+    await fs.writeFile(filePath, [
+      '/* c8 ignore start */', // line 1 — the start comment itself is NOT ignored
+      'const b = 2',           // line 2 — ignored
+      '/* c8 ignore stop */',  // line 3 — ignored
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 22 } },
+        '1': { start: { line: 2, column: 0 }, end: { line: 2, column: 12 } },
+      },
+      s: { '0': 1, '1': 1 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      statementMap: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeDefined()    // start line — kept
+    expect(data.statementMap['1']).toBeUndefined()  // line 2 — removed
+  })
+
+  it('removes functions on ignored lines', async () => {
+    const filePath = join(testDir, 'f.ts')
+    await fs.writeFile(filePath, [
+      'const a = 1',
+      '// c8 ignore next',
+      'function ignored() { return 1 }',
+      'function kept() { return 2 }',
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+        '1': { start: { line: 3, column: 0 }, end: { line: 3, column: 32 } },
+        '2': { start: { line: 4, column: 0 }, end: { line: 4, column: 30 } },
+      },
+      s: { '0': 1, '1': 0, '2': 1 },
+      fnMap: {
+        '0': { name: 'ignored', decl: { start: { line: 3 }, end: { line: 3 } }, loc: { start: { line: 3 }, end: { line: 3 } }, line: 3 },
+        '1': { name: 'kept',    decl: { start: { line: 4 }, end: { line: 4 } }, loc: { start: { line: 4 }, end: { line: 4 } }, line: 4 },
+      },
+      f: { '0': 0, '1': 5 },
+      branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      fnMap: Record<string, unknown>
+      f: Record<string, unknown>
+    }
+    expect(data.fnMap['0']).toBeUndefined()  // ignored function — removed
+    expect(data.f['0']).toBeUndefined()
+    expect(data.fnMap['1']).toBeDefined()    // kept function — present
+    expect(data.f['1']).toBeDefined()
+  })
+
+  it('removes branches on ignored lines', async () => {
+    const filePath = join(testDir, 'g.ts')
+    await fs.writeFile(filePath, [
+      'const a = 1',
+      '// c8 ignore next',
+      'const b = x ? 1 : 2',
+      'const c = y ? 3 : 4',
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+        '1': { start: { line: 3, column: 0 }, end: { line: 3, column: 20 } },
+        '2': { start: { line: 4, column: 0 }, end: { line: 4, column: 20 } },
+      },
+      s: { '0': 1, '1': 1, '2': 1 },
+      fnMap: {}, f: {},
+      branchMap: {
+        '0': { type: 'if', loc: { start: { line: 3 }, end: { line: 3 } }, locations: [{ start: { line: 3 } }, { start: { line: 3 } }] },
+        '1': { type: 'if', loc: { start: { line: 4 }, end: { line: 4 } }, locations: [{ start: { line: 4 } }, { start: { line: 4 } }] },
+      },
+      b: { '0': [1, 1], '1': [1, 1] },
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      branchMap: Record<string, unknown>
+      b: Record<string, unknown>
+    }
+    expect(data.branchMap['0']).toBeUndefined()  // ignored branch — removed
+    expect(data.b['0']).toBeUndefined()
+    expect(data.branchMap['1']).toBeDefined()    // kept branch — present
+    expect(data.b['1']).toBeDefined()
+  })
+
+  it('skips gracefully when the source file does not exist', async () => {
+    const missingFile = join(testDir, 'does-not-exist.ts')
+
+    const map = makeMap(missingFile, {
+      path: missingFile,
+      statementMap: {
+        '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } },
+      },
+      s: { '0': 1 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    // Should not throw
+    expect(() => stripC8IgnoreLines(map)).not.toThrow()
+
+    // Coverage data should be untouched since file wasn't readable
+    const data = map.fileCoverageFor(missingFile).toJSON() as {
+      statementMap: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeDefined()
+  })
+
+  it('handles istanbul variant of block ignore comments', async () => {
+    const filePath = join(testDir, 'h.ts')
+    await fs.writeFile(filePath, [
+      '/* istanbul ignore start */',
+      'const a = 1',
+      '/* istanbul ignore stop */',
+      'const b = 2',
+    ].join('\n'))
+
+    const map = makeMap(filePath, {
+      path: filePath,
+      statementMap: {
+        '0': { start: { line: 2, column: 0 }, end: { line: 2, column: 12 } },
+        '1': { start: { line: 4, column: 0 }, end: { line: 4, column: 12 } },
+      },
+      s: { '0': 1, '1': 1 },
+      fnMap: {}, f: {}, branchMap: {}, b: {},
+    })
+
+    stripC8IgnoreLines(map)
+
+    const data = map.fileCoverageFor(filePath).toJSON() as {
+      statementMap: Record<string, unknown>
+    }
+    expect(data.statementMap['0']).toBeUndefined()  // inside block — removed
+    expect(data.statementMap['1']).toBeDefined()    // after stop — kept
   })
 })

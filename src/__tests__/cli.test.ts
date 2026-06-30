@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync } from 'fs'
+import { promises as fsPromises, writeFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   parseMergeArgs,
   MERGE_HELP,
   validateInputDirectories,
   executeMerge,
+  stripCoverageDirectives,
 } from '../cli/commands/merge.js'
 
 // Mock fs module but keep readFileSync for integration tests
@@ -539,5 +543,251 @@ describe('CLI merge command', () => {
       expect(totalFunctions).toBeGreaterThan(30)
       expect(totalLines).toBeGreaterThan(70)
     }, 30000)
+  })
+})
+
+describe('stripCoverageDirectives - c8/istanbul ignore hints', () => {
+  let testDir: string
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `strip-directives-test-${Date.now()}`)
+    mkdirSync(testDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fsPromises.rm(testDir, { recursive: true, force: true })
+    } catch { /* ignore */ }
+  })
+
+  type CoverageData = {
+    statementMap: Record<string, { start: { line: number } }>
+    s: Record<string, number>
+    fnMap?: Record<string, { loc?: { start?: { line?: number } } }>
+    f?: Record<string, number>
+    branchMap?: Record<string, { loc?: { start?: { line?: number } } }>
+    b?: Record<string, number[]>
+  }
+
+  function makeInput(filePath: string, data: CoverageData): Record<string, CoverageData> {
+    return { [filePath]: data }
+  }
+
+  it('strips statement on line after // c8 ignore next (bare form, regression for fixed regex)', () => {
+    const filePath = join(testDir, 'a.ts')
+    writeFileSync(filePath, [
+      'const a = 1',       // line 1
+      '// c8 ignore next', // line 2
+      'const b = 2',       // line 3 — ignored
+      'const c = 3',       // line 4
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } },
+        '1': { start: { line: 3 } }, // should be removed
+        '2': { start: { line: 4 } },
+      },
+      s: { '0': 1, '1': 5, '2': 3 },
+    })
+
+    const result = stripCoverageDirectives(input as never)
+
+    expect(input[filePath].statementMap['1']).toBeUndefined()
+    expect(input[filePath].s['1']).toBeUndefined()
+    expect(input[filePath].statementMap['0']).toBeDefined() // line 1 — kept
+    expect(input[filePath].statementMap['2']).toBeDefined() // line 4 — kept
+    expect(result.ignoredRemoved).toBe(1)
+  })
+
+  it('strips statement after // istanbul ignore next', () => {
+    const filePath = join(testDir, 'b.ts')
+    writeFileSync(filePath, [
+      'const a = 1',
+      '// istanbul ignore next',
+      'const b = 2',
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } },
+        '1': { start: { line: 3 } },
+      },
+      s: { '0': 1, '1': 1 },
+    })
+
+    const result = stripCoverageDirectives(input as never)
+
+    expect(input[filePath].statementMap['1']).toBeUndefined()
+    expect(result.ignoredRemoved).toBe(1)
+  })
+
+  it('strips statement after /* c8 ignore next */ (block comment form)', () => {
+    const filePath = join(testDir, 'c.ts')
+    writeFileSync(filePath, [
+      'const a = 1',
+      '/* c8 ignore next */',
+      'const b = 2',
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } },
+        '1': { start: { line: 3 } },
+      },
+      s: { '0': 1, '1': 1 },
+    })
+
+    stripCoverageDirectives(input as never)
+
+    expect(input[filePath].statementMap['1']).toBeUndefined()
+    expect(input[filePath].statementMap['0']).toBeDefined()
+  })
+
+  it('strips statements inside /* c8 ignore start */ ... /* c8 ignore stop */ block', () => {
+    const filePath = join(testDir, 'd.ts')
+    writeFileSync(filePath, [
+      'const a = 1',          // line 1
+      '/* c8 ignore start */', // line 2 — start, NOT ignored
+      'const b = 2',          // line 3 — ignored
+      'const c = 3',          // line 4 — ignored
+      '/* c8 ignore stop */', // line 5 — stop (included in ignore range)
+      'const d = 4',          // line 6 — NOT ignored
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } },
+        '1': { start: { line: 3 } },
+        '2': { start: { line: 4 } },
+        '3': { start: { line: 6 } },
+      },
+      s: { '0': 1, '1': 1, '2': 1, '3': 1 },
+    })
+
+    const result = stripCoverageDirectives(input as never)
+
+    expect(input[filePath].statementMap['0']).toBeDefined()    // line 1 — kept
+    expect(input[filePath].statementMap['1']).toBeUndefined()  // line 3 — removed
+    expect(input[filePath].statementMap['2']).toBeUndefined()  // line 4 — removed
+    expect(input[filePath].statementMap['3']).toBeDefined()    // line 6 — kept
+    expect(result.ignoredRemoved).toBe(2)
+  })
+
+  it('does NOT strip statement on the /* c8 ignore start */ line itself', () => {
+    const filePath = join(testDir, 'e.ts')
+    writeFileSync(filePath, [
+      '/* c8 ignore start */', // line 1 — start comment, itself NOT ignored
+      'const b = 2',           // line 2 — ignored
+      '/* c8 ignore stop */',  // line 3 — stop
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } }, // on the start comment line
+        '1': { start: { line: 2 } }, // inside block
+      },
+      s: { '0': 1, '1': 1 },
+    })
+
+    stripCoverageDirectives(input as never)
+
+    expect(input[filePath].statementMap['0']).toBeDefined()    // start line — kept
+    expect(input[filePath].statementMap['1']).toBeUndefined()  // inside block — removed
+  })
+
+  it('strips functions on ignored lines and increments ignoredRemoved', () => {
+    const filePath = join(testDir, 'f.ts')
+    writeFileSync(filePath, [
+      'const a = 1',
+      '// c8 ignore next',
+      'function ignored() { return 1 }',
+      'function kept() { return 2 }',
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } },
+      },
+      s: { '0': 1 },
+      fnMap: {
+        '0': { loc: { start: { line: 3 } } }, // on ignored line
+        '1': { loc: { start: { line: 4 } } }, // not ignored
+      },
+      f: { '0': 0, '1': 5 },
+    })
+
+    const result = stripCoverageDirectives(input as never)
+
+    expect(input[filePath].fnMap!['0']).toBeUndefined()  // removed
+    expect(input[filePath].f!['0']).toBeUndefined()
+    expect(input[filePath].fnMap!['1']).toBeDefined()    // kept
+    expect(input[filePath].f!['1']).toBeDefined()
+    expect(result.ignoredRemoved).toBeGreaterThanOrEqual(1)
+  })
+
+  it('skips gracefully when source file does not exist on disk', () => {
+    const missingFile = join(testDir, 'does-not-exist.ts')
+
+    const input = makeInput(missingFile, {
+      statementMap: {
+        '0': { start: { line: 2 } },
+      },
+      s: { '0': 1 },
+    })
+
+    // Should not throw; unreadable files are skipped
+    expect(() => stripCoverageDirectives(input as never)).not.toThrow()
+    // Data untouched since file wasn't read
+    expect(input[missingFile].statementMap['0']).toBeDefined()
+  })
+
+  it('handles /* istanbul ignore start/stop */ block (istanbul variant)', () => {
+    const filePath = join(testDir, 'g.ts')
+    writeFileSync(filePath, [
+      '/* istanbul ignore start */',
+      'const a = 1',
+      '/* istanbul ignore stop */',
+      'const b = 2',
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 2 } }, // inside block
+        '1': { start: { line: 4 } }, // after stop
+      },
+      s: { '0': 1, '1': 1 },
+    })
+
+    stripCoverageDirectives(input as never)
+
+    expect(input[filePath].statementMap['0']).toBeUndefined()  // removed
+    expect(input[filePath].statementMap['1']).toBeDefined()    // kept
+  })
+
+  it('does not affect import or directive removal counts for ignored lines', () => {
+    const filePath = join(testDir, 'h.ts')
+    writeFileSync(filePath, [
+      'import foo from "foo"',   // line 1 — import
+      "'use client'",             // line 2 — directive
+      '// c8 ignore next',
+      'const a = 1',             // line 4 — ignored
+    ].join('\n'))
+
+    const input = makeInput(filePath, {
+      statementMap: {
+        '0': { start: { line: 1 } },
+        '1': { start: { line: 2 } },
+        '2': { start: { line: 4 } },
+      },
+      s: { '0': 1, '1': 1, '2': 1 },
+    })
+
+    const result = stripCoverageDirectives(input as never)
+
+    expect(result.importsRemoved).toBe(1)
+    expect(result.directivesRemoved).toBe(1)
+    expect(result.ignoredRemoved).toBe(1)
+    expect(Object.keys(input[filePath].statementMap)).toHaveLength(0)
   })
 })

@@ -210,7 +210,7 @@ export class CoverageProcessor {
  *   /* istanbul ignore next *\/  /  // istanbul ignore next
  *   /* c8 ignore start *\/ ... /* c8 ignore stop *\/
  */
-function stripC8IgnoreLines(coverageMap: CoverageMap): void {
+export function stripC8IgnoreLines(coverageMap: CoverageMap): void {
   for (const filePath of coverageMap.files()) {
     let lines: string[]
     try {
