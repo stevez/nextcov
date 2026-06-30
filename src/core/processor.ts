@@ -6,6 +6,7 @@
  */
 
 import { join, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { glob } from 'glob'
 import libCoverage from 'istanbul-lib-coverage'
 import { V8CoverageReader } from './v8-reader.js'
@@ -108,6 +109,10 @@ export class CoverageProcessor {
       mergedMap = await this.rebaseOntoSourceStructure(mergedMap)
     }
 
+    // Strip c8/istanbul ignore-annotated statements and branches so they are
+    // excluded from the E2E coverage report (consistent with Vitest behaviour)
+    stripC8IgnoreLines(mergedMap)
+
     // Generate reports
     const summary = await this.reporter.generateReports(mergedMap)
 
@@ -192,5 +197,85 @@ export class CoverageProcessor {
     if (!coverageMap) return null
 
     return this.reporter.getSummary(coverageMap)
+  }
+}
+
+/**
+ * Strip statements and branches annotated with c8/istanbul ignore hints from
+ * a CoverageMap. This ensures the E2E coverage report is consistent with
+ * Vitest, which respects these hints at collection time.
+ *
+ * Supports:
+ *   /* c8 ignore next *\/  /  // c8 ignore next
+ *   /* istanbul ignore next *\/  /  // istanbul ignore next
+ *   /* c8 ignore start *\/ ... /* c8 ignore stop *\/
+ */
+function stripC8IgnoreLines(coverageMap: CoverageMap): void {
+  for (const filePath of coverageMap.files()) {
+    let lines: string[]
+    try {
+      lines = readFileSync(filePath, 'utf-8').split('\n')
+    } catch {
+      continue
+    }
+
+    // Build set of line numbers (1-indexed) covered by ignore hints
+    const ignoredLines = new Set<number>()
+    let inIgnoreBlock = false
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      // /* c8 ignore start */ / // c8 ignore start — lines after this are ignored
+      // (the comment line itself is NOT ignored, only the lines it covers)
+      if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+start/.test(trimmed)) {
+        inIgnoreBlock = true
+        continue
+      }
+      if (inIgnoreBlock) {
+        ignoredLines.add(i + 1)
+      }
+      if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+stop/.test(trimmed)) {
+        inIgnoreBlock = false
+      }
+      // /* c8 ignore next */ / // c8 ignore next [N]
+      // Note: ignore next N (N > 1) is not fully supported — only the immediately
+      // following line is ignored. N is parsed but not acted upon.
+      const nextMatch = /\/[/*]\s*(c8|istanbul)\s+ignore\s+(next|next\s+\d+)/.exec(trimmed)
+      if (nextMatch) {
+        ignoredLines.add(i + 2) // next line (1-indexed)
+      }
+    }
+
+    if (ignoredLines.size === 0) continue
+
+    const fileCoverage = coverageMap.fileCoverageFor(filePath)
+    const data = fileCoverage.toJSON() as {
+      statementMap: Record<string, { start: { line: number } }>
+      s: Record<string, number>
+      fnMap: Record<string, { loc?: { start?: { line?: number } } }>
+      f: Record<string, number>
+      branchMap: Record<string, { loc?: { start?: { line?: number } } }>
+      b: Record<string, number[]>
+    }
+
+    for (const [key, stmt] of Object.entries(data.statementMap)) {
+      if (ignoredLines.has(stmt.start.line)) {
+        delete data.statementMap[key]
+        delete data.s[key]
+      }
+    }
+
+    for (const [key, fn] of Object.entries(data.fnMap || {})) {
+      if (fn.loc?.start?.line !== undefined && ignoredLines.has(fn.loc.start.line)) {
+        delete data.fnMap[key]
+        delete data.f[key]
+      }
+    }
+
+    for (const [key, branch] of Object.entries(data.branchMap || {})) {
+      if (branch.loc?.start?.line !== undefined && ignoredLines.has(branch.loc.start.line)) {
+        delete data.branchMap[key]
+        delete data.b[key]
+      }
+    }
   }
 }
