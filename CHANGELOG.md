@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [1.4.3] - 2026-06-30
 
+### Added
+
+- **Respect `c8`/`istanbul` ignore hints in E2E and merged coverage** — `processAllCoverage` now strips statements, functions, and branches annotated with `// c8 ignore next`, `/* c8 ignore next */`, `/* c8 ignore start */.../* c8 ignore stop */` (and `istanbul` variants) from E2E coverage before generating reports. `nextcov merge --strip` applies the same stripping to merged coverage. This makes E2E and merged reports consistent with Vitest, which respects these hints at collection time.
+
 ### Changed
 
 - **Bump dev dependencies** — Updated `@eslint/js`, `eslint`, `typescript-eslint`, `@playwright/test`, `@types/node`, `rimraf`, and `tsc-alias` to latest versions.
