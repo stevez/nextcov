@@ -224,8 +224,11 @@ function stripC8IgnoreLines(coverageMap: CoverageMap): void {
     let inIgnoreBlock = false
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim()
+      // /* c8 ignore start */ / // c8 ignore start — lines after this are ignored
+      // (the comment line itself is NOT ignored, only the lines it covers)
       if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+start/.test(trimmed)) {
         inIgnoreBlock = true
+        continue
       }
       if (inIgnoreBlock) {
         ignoredLines.add(i + 1)
@@ -233,7 +236,11 @@ function stripC8IgnoreLines(coverageMap: CoverageMap): void {
       if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+stop/.test(trimmed)) {
         inIgnoreBlock = false
       }
-      if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+next(\s+\d+)?[\s*]/.test(trimmed)) {
+      // /* c8 ignore next */ / // c8 ignore next [N]
+      // Note: ignore next N (N > 1) is not fully supported — only the immediately
+      // following line is ignored. N is parsed but not acted upon.
+      const nextMatch = /\/[/*]\s*(c8|istanbul)\s+ignore\s+(next|next\s+\d+)/.exec(trimmed)
+      if (nextMatch) {
         ignoredLines.add(i + 2) // next line (1-indexed)
       }
     }
@@ -244,6 +251,8 @@ function stripC8IgnoreLines(coverageMap: CoverageMap): void {
     const data = fileCoverage.toJSON() as {
       statementMap: Record<string, { start: { line: number } }>
       s: Record<string, number>
+      fnMap: Record<string, { loc?: { start?: { line?: number } } }>
+      f: Record<string, number>
       branchMap: Record<string, { loc?: { start?: { line?: number } } }>
       b: Record<string, number[]>
     }
@@ -252,6 +261,13 @@ function stripC8IgnoreLines(coverageMap: CoverageMap): void {
       if (ignoredLines.has(stmt.start.line)) {
         delete data.statementMap[key]
         delete data.s[key]
+      }
+    }
+
+    for (const [key, fn] of Object.entries(data.fnMap || {})) {
+      if (fn.loc?.start?.line !== undefined && ignoredLines.has(fn.loc.start.line)) {
+        delete data.fnMap[key]
+        delete data.f[key]
       }
     }
 

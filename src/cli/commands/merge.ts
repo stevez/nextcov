@@ -131,11 +131,14 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
     const ignoredLines = new Set<number>()
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim()
-      // /* c8 ignore next */ or // c8 ignore next (and istanbul variants)
+      // /* c8 ignore next */ or // c8 ignore next [N] (and istanbul variants)
+      // Note: ignore next N (N > 1) is not fully supported — only the immediately
+      // following line is ignored. N is parsed but not acted upon.
       if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+(next|next\s+\d+)/.test(trimmed)) {
         ignoredLines.add(i + 2) // 1-indexed: the NEXT line
       }
       // /* c8 ignore start */ ... /* c8 ignore stop */ blocks
+      // (the comment line itself is NOT ignored, only the lines it covers)
       if (/\/[/*]\s*(c8|istanbul)\s+ignore\s+start/.test(trimmed)) {
         let j = i + 1
         while (j < lines.length) {
@@ -184,6 +187,16 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
       }
     }
 
+    // Remove functions on ignored lines
+    for (const [key, fnMeta] of Object.entries(data.fnMap || {})) {
+      const fnLine = fnMeta.loc?.start?.line
+      if (fnLine !== undefined && ignoredLines.has(fnLine)) {
+        delete data.fnMap![key]
+        delete data.f![key]
+        ignoredRemoved++
+      }
+    }
+
     // Remove branches on ignored lines
     for (const [key, branchMeta] of Object.entries(data.branchMap || {})) {
       const branchLine = branchMeta.loc?.start?.line
@@ -201,6 +214,8 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
 interface FileCoverageData {
   statementMap: Record<string, { start: { line: number } }>
   s: Record<string, number>
+  fnMap?: Record<string, { loc?: { start?: { line?: number } } }>
+  f?: Record<string, number>
   branchMap?: Record<string, { loc?: { start?: { line?: number } } }>
   b?: Record<string, number[]>
   [key: string]: unknown
