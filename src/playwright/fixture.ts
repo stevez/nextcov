@@ -134,6 +134,15 @@ export interface PlaywrightCoverageOptions {
    * When false, client coverage from Playwright is not collected.
    */
   collectClient?: boolean
+  /**
+   * Number of worker threads for coverage processing (default: auto based on CPU count).
+   * Set to 0 to disable worker threads and run single-threaded.
+   *
+   * On Windows, setting workers: 0 avoids a heap corruption crash that occurs
+   * when Vite's WASM-based parser is loaded in worker threads while Playwright's
+   * Chromium process is still shutting down.
+   */
+  workers?: number
 }
 
 const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
@@ -150,6 +159,7 @@ const DEFAULT_OPTIONS: Required<PlaywrightCoverageOptions> = {
   cdpPort: DEFAULT_NEXTCOV_CONFIG.cdpPort,
   collectServer: DEFAULT_NEXTCOV_CONFIG.collectServer,
   collectClient: DEFAULT_NEXTCOV_CONFIG.collectClient,
+  workers: -1, // -1 = auto-detect
 }
 
 /**
@@ -495,6 +505,20 @@ export async function finalizeCoverage(
   options?: PlaywrightCoverageOptions | ResolvedNextcovConfig
 ): Promise<CoverageResult | null> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
+
+  // Apply workers config before the worker pool is first accessed.
+  // workers: 0 disables worker threads (single-threaded mode).
+  // This is needed on Windows where Vite's WASM parser in worker threads
+  // causes heap corruption while Chromium is shutting down.
+  if (opts.workers >= 0) {
+    process.env.NEXTCOV_WORKERS = String(opts.workers)
+  }
+
+  // Initialize logging from config (needed when finalizeCoverage is called directly
+  // in globalTeardown without a prior startServerCoverage call)
+  const rawOpts = options as Record<string, unknown> | undefined
+  setLogging(rawOpts?.log === true)
+  setTiming(rawOpts?.timing === true)
 
   log('\n✅ E2E tests complete')
 

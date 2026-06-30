@@ -7,8 +7,7 @@
 
 import { existsSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
-import { parse as babelParse } from '@babel/parser'
-import { parseAstAsync } from 'vite'
+import { parseAstAsync, transformWithEsbuild } from 'vite'
 import _astV8ToIstanbul from 'ast-v8-to-istanbul'
 import libCoverage from 'istanbul-lib-coverage'
 import libSourceMaps from 'istanbul-lib-source-maps'
@@ -954,41 +953,69 @@ export class CoverageConverter {
   }
 
   /**
-   * Create empty coverage entry for an uncovered file
-   * Uses Babel parser to properly parse TypeScript/TSX and extract functions/branches.
+   * Create empty coverage entry for an uncovered file.
+   *
+   * Uses the same esbuild pipeline as Vitest: transformWithEsbuild compiles
+   * TypeScript/TSX → JavaScript with a source map, then parseAstAsync parses
+   * the compiled JS, and astV8ToIstanbul maps positions back to the original
+   * source via the source map.
+   *
+   * Because the positions come from esbuild (identical to unit/component
+   * coverage), a subsequent `nextcov merge` rebase always finds exact
+   * line:col matches — no fallback, no misattribution.
    */
   private async createEmptyCoverage(
     filePath: string,
     code: string
   ): Promise<CoverageMapData | null> {
     try {
-      // Determine if it's TypeScript/TSX
-      const isTypeScript = filePath.endsWith('.ts') || filePath.endsWith('.tsx')
-      const isJSX = filePath.endsWith('.tsx') || filePath.endsWith('.jsx')
-
-      // Parse with Babel which supports TypeScript
-      const ast = babelParse(code, {
-        sourceType: 'module',
-        plugins: [
-          ...(isTypeScript ? ['typescript' as const] : []),
-          ...(isJSX ? ['jsx' as const] : []),
-          'decorators-legacy' as const,
-        ],
-        errorRecovery: true,
-      })
-
-      // Convert Windows path to file:// URL
       const fileUrl = toFileUrl(filePath, this.projectRoot)
 
-      // Use ast-v8-to-istanbul with the Babel AST
-      // Pass empty functions array to mark everything as uncovered
-      // Note: Babel AST is structurally compatible with astV8ToIstanbul's expected AST
+      // Transform TypeScript/TSX → JS using esbuild (same as Vitest's pipeline).
+      // sourcemap:true gives us the position mapping back to the original source.
+      //
+      // IMPORTANT: Use platform:'neutral' so esbuild does NOT constant-fold
+      // process.env.NODE_ENV branches. With the default platform ('browser'),
+      // esbuild sees NODE_ENV='production' in the env and eliminates the
+      // 'else' arm of `NODE_ENV === 'production' ? A : B`, producing fewer
+      // branches in the zero-coverage map than Vitest (which uses platform:'browser'
+      // but runs with NODE_ENV='test', so no constant-folding occurs there).
+      const { code: compiledCode, map } = await transformWithEsbuild(code, filePath, {
+        sourcemap: true,
+        platform: 'neutral',
+      })
+
+      // Parse the compiled JS with Vite's fast Rollup-based parser
+      const ast = await parseAstAsync(compiledCode)
+
+      // Build the source map for astV8ToIstanbul: mappings from compiled JS
+      // positions → original TypeScript positions, with the original file as source.
+      const sourceMap = map?.mappings ? {
+        version: 3 as const,
+        sources: [fileUrl],
+        sourcesContent: [code],
+        names: map.names ?? [],
+        mappings: map.mappings,
+      } : undefined
+
       const emptyCoverage = await astV8ToIstanbul({
-        code,
-        ast: ast as unknown as Parameters<typeof astV8ToIstanbul>[0]['ast'],
+        code: compiledCode,
+        ast,
+        sourceMap,
         coverage: {
           url: fileUrl,
-          functions: [], // No functions executed = 0% coverage
+          // A single block-coverage range spanning the entire file with count 0
+          // lets astV8ToIstanbul enumerate ALL statements, functions, and branches
+          // (including logical/ternary operators). With functions:[] it can only
+          // find branches discoverable from the AST alone, giving an incomplete
+          // denominator (e.g. 1192 instead of the correct 1228).
+          functions: [
+            {
+              functionName: '(root)',
+              isBlockCoverage: true,
+              ranges: [{ startOffset: 0, endOffset: compiledCode.length, count: 0 }],
+            },
+          ],
         },
         wrapperLength: 0,
         ignoreClassMethods: [],
@@ -997,7 +1024,6 @@ export class CoverageConverter {
       // Fix the path in the coverage data
       const result: CoverageMapData = {}
       for (const [, data] of Object.entries(emptyCoverage as CoverageMapData)) {
-        // FileCoverageData has a path property that we need to update
         const fileCoverage = data as CoverageMapData[string] & { path: string }
         fileCoverage.path = filePath
         result[filePath] = data

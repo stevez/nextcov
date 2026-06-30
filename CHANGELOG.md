@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - 2026-06-30
+
+### Added
+
+- **E2E coverage rebase onto source AST structure** - `processAllCoverage` now rebases E2E coverage onto the correct source statement structure before writing reports, when `sourceRoot` is configured. All source files are compiled through the same esbuild pipeline as Vitest (`transformWithEsbuild` + `parseAstAsync`), producing a zero-count Istanbul map whose `line:col` positions are identical to unit/component coverage. Turbopack-coarsened E2E hit counts are remapped onto this richer structure, and files the browser never loaded appear with zero counts. E2E-only reports show accurate percentages without requiring a `nextcov merge` step. When `nextcov merge` runs afterwards, the structures already match — no fallback, no misattribution. Requires `sourceRoot` to be configured.
+
+- **`workers` option for `PlaywrightCoverageOptions`** - Control worker thread count directly from the `finalizeCoverage` config instead of relying on the `NEXTCOV_WORKERS` environment variable. Set `workers: 0` for single-threaded mode. On Windows, spawning Vite's WASM-based parser in worker threads while Playwright's Chromium process is shutting down can cause heap corruption (`0xC0000374`); `workers: 0` in the globalTeardown config prevents this cleanly.
+
+- **`rebaseOntoMap` in `src/merger/rebase.ts`** - New function for rebasing coverage onto an authoritative structure skeleton. Unlike `rebaseCoarserMaps` (which picks the skeleton heuristically), `rebaseOntoMap` always uses the caller-supplied `structure` map as the skeleton, remapping `source` hit counts by exact `line:col` position with `line`-only fallback. Branch arm arrays are normalised to the skeleton's `locations.length` to prevent denominator inflation from Turbopack's differently-shaped branch nodes. Files only in `source` (outside the include patterns) are excluded; files only in `structure` retain zero counts.
+
+### Fixed
+
+- **Branch denominator inflation after rebase** - When a branch was matched only by line (fallback), the E2E source's arm array was assigned directly. If Turbopack collapsed a ternary chain into a different number of arms than the zero-map branch, this inflated the total branch count (e.g. 1249 instead of 1230). Both exact and line-fallback matches are now truncated/padded to the zero-map branch's `locations.length`.
+
+- **Worker pool infinite crash loop** - A worker that repeatedly crashed (e.g. Vite's WASM parser failing to load in a worker thread context) would be endlessly re-queued. Added `MAX_TASK_RETRIES = 2`: after two retries on fresh workers the task falls back to `runTaskDirect` (single-threaded execution in the main thread) so the promise always resolves.
+
+- **`ERR_INPUT_TYPE_NOT_ALLOWED` in worker threads** - Worker threads inherited the `--input-type=module` flag from a parent process started with `node --input-type=module`. Node.js does not allow this flag in worker threads. It is now stripped from `execArgv` before spawning.
+
+- **`isBabelQuality` heuristic removed from `rebaseCoarserMaps`** - esbuild produces `end.column: Infinity` which `JSON.stringify` serialises to `null` — identical to Turbopack's `null end.column` after a `coverage-final.json` round-trip. The heuristic was silently selecting Turbopack's coarser structure as the skeleton for some files, causing merged coverage to fall below 100%. Reverted to simple "most statements wins". Safe because E2E coverage is pre-rebased onto the esbuild structure before `nextcov merge` reads it.
+
+- **Logging not initialised in direct `finalizeCoverage` calls** - When `finalizeCoverage` is called directly in `globalTeardown` without a prior `startServerCoverage` call, `setLogging` and `setTiming` were never called. Log and timing options from the config are now applied at the start of `finalizeCoverage`.
+
+- **Empty catch block in `InProcessV8Collector`** - Silenced an ESLint `no-empty` error on the source-read catch path in `src/collector/in-process.ts`.
+
 ## [1.4.1] - 2026-06-29
 
 ### Fixed

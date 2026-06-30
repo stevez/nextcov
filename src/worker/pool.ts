@@ -109,12 +109,16 @@ interface QueuedTask {
   task: WorkerTask
   resolve: (result: WorkerResult) => void
   reject: (error: Error) => void
+  retries: number
 }
+
+const MAX_TASK_RETRIES = 2
 
 export class WorkerPool {
   private workers: Worker[] = []
   private availableWorkers: Worker[] = []
   private taskQueue: QueuedTask[] = []
+  private activeTask: Map<Worker, QueuedTask> = new Map()
   private workerPath: string
   private maxWorkers: number
   private isTerminated = false
@@ -129,7 +133,13 @@ export class WorkerPool {
   }
 
   private createWorker(): Worker {
-    const worker = new Worker(this.workerPath)
+    // Strip --input-type from execArgv — it is only valid for stdin/eval input
+    // and causes ERR_INPUT_TYPE_NOT_ALLOWED when worker threads inherit it from
+    // a parent process started with `node --input-type=module`.
+    const execArgv = process.execArgv.filter(
+      (arg) => !arg.startsWith('--input-type')
+    )
+    const worker = new Worker(this.workerPath, { execArgv })
 
     worker.on('error', (err) => {
       console.error('[WorkerPool] Worker error:', err)
@@ -157,6 +167,24 @@ export class WorkerPool {
       if (availIdx !== -1) {
         this.availableWorkers.splice(availIdx, 1)
       }
+      // Reject the in-flight task for this worker (if any) so its promise
+      // doesn't hang forever. Re-queue it so it gets retried on a new worker.
+      const active = this.activeTask.get(worker)
+      this.activeTask.delete(worker)
+      if (active && !this.isTerminated) {
+        if (active.retries < MAX_TASK_RETRIES) {
+          // Re-queue with incremented retry count
+          active.retries++
+          this.taskQueue.unshift(active)
+          this.processNextTask()
+        } else {
+          // Max retries exceeded — fall back to single-threaded execution
+          console.warn('[WorkerPool] Worker repeatedly crashed, falling back to single-threaded mode for this task')
+          this.runTaskDirect(active.task).then(active.resolve).catch(active.reject)
+        }
+      } else if (active) {
+        active.reject(new Error(`Worker exited with code ${code ?? 'null'}`))
+      }
     })
 
     this.workers.push(worker)
@@ -180,11 +208,14 @@ export class WorkerPool {
     const worker = this.getWorker()
     if (!worker) return
 
-    const { task, resolve, reject } = this.taskQueue.shift()!
+    const queued = this.taskQueue.shift()!
+    const { task, resolve, reject } = queued
+    this.activeTask.set(worker, queued)
 
     const handleMessage = (result: WorkerResult) => {
       worker.off('message', handleMessage)
       worker.off('error', handleError)
+      this.activeTask.delete(worker)
 
       // Return worker to available pool
       if (!this.isTerminated) {
@@ -199,6 +230,7 @@ export class WorkerPool {
     const handleError = (err: Error) => {
       worker.off('message', handleMessage)
       worker.off('error', handleError)
+      this.activeTask.delete(worker)
 
       reject(err)
     }
@@ -221,7 +253,7 @@ export class WorkerPool {
     }
 
     return new Promise((resolve, reject) => {
-      this.taskQueue.push({ task, resolve, reject })
+      this.taskQueue.push({ task, resolve, reject, retries: 0 })
       this.processNextTask()
     })
   }

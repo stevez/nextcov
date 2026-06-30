@@ -7,16 +7,17 @@
 
 import { join, resolve } from 'node:path'
 import { glob } from 'glob'
+import libCoverage from 'istanbul-lib-coverage'
 import { V8CoverageReader } from './v8-reader.js'
 import { SourceMapLoader } from './sourcemap-loader.js'
 import { CoverageConverter } from '@/converter/index.js'
 import { IstanbulReporter } from './reporter.js'
+import { rebaseOntoMap } from '@/merger/rebase.js'
 import {
   DEFAULT_NEXTCOV_CONFIG,
   DEFAULT_REPORTERS,
   DEFAULT_INCLUDE_PATTERNS,
   COVERAGE_FINAL_JSON,
-  normalizePath,
   isPathWithinBase,
 } from '@/utils/config.js'
 import type {
@@ -95,9 +96,16 @@ export class CoverageProcessor {
       mergedMap = await this.reporter.mergeCoverageMaps(mergedMap, coverageMap)
     }
 
-    // Add uncovered source files if configured
+    // Rebase E2E coverage onto the full source AST structure and fill in
+    // uncovered files. Requires sourceRoot to be configured.
+    //
+    // Turbopack collapses AST nodes during compilation, so V8 coverage sees
+    // fewer statements than the original source (e.g. 1315 vs 1771). Without
+    // rebasing, E2E-only reports show inflated percentages because the
+    // denominator is too small. We fix this here so the output is already
+    // correct whether or not the user runs `nextcov merge` afterwards.
     if (this.options.sourceRoot) {
-      await this.addUncoveredFiles(mergedMap)
+      mergedMap = await this.rebaseOntoSourceStructure(mergedMap)
     }
 
     // Generate reports
@@ -110,38 +118,68 @@ export class CoverageProcessor {
   }
 
   /**
-   * Add uncovered source files to coverage map
-   * Includes path traversal protection to ensure all files are within project root.
+   * Rebase E2E coverage onto the full source AST structure, then fill in
+   * uncovered files with zero hit counts.
+   *
+   * For every source file, Babel parses the TypeScript/TSX (static analysis
+   * only — no instrumentation) and ast-v8-to-istanbul derives the complete
+   * statement/function/branch map with zero counts. This "zero map" has the
+   * same rich granularity as Vitest/esbuild coverage.
+   *
+   * rebaseOntoMap then remaps E2E hit counts from the coarser Turbopack
+   * structure onto the richer zero-map skeleton by matching line:col positions.
+   *
+   * Finally, the zero map is used as the base so that files the browser never
+   * loaded appear in the report with zero counts (correct denominator).
+   *
+   * Babel parse cost is proportional to total source files, but runs once at
+   * the end of the test suite and is I/O-bound, not CPU-bound.
    */
-  private async addUncoveredFiles(coverageMap: CoverageMap): Promise<void> {
+  private async rebaseOntoSourceStructure(coverageMap: CoverageMap): Promise<CoverageMap> {
     const includePatterns = this.options.include || DEFAULT_INCLUDE_PATTERNS
     const excludePatterns = this.options.exclude || []
 
-    // Find all source files
-    const sourceFiles: string[] = []
+    // Collect all source files
+    const allSourceFiles: string[] = []
     for (const pattern of includePatterns) {
       const fullPattern = join(this.projectRoot, pattern).replace(/\\/g, '/')
       const ignorePatterns = excludePatterns.map((p) =>
         join(this.projectRoot, p).replace(/\\/g, '/')
       )
-      const files = await glob(fullPattern, {
-        ignore: ignorePatterns,
-        absolute: true,
-      })
-      sourceFiles.push(...files)
+      const files = await glob(fullPattern, { ignore: ignorePatterns, absolute: true })
+      allSourceFiles.push(...files)
+    }
+    // Path traversal protection
+    const safeFiles = allSourceFiles.filter((f) => isPathWithinBase(f, this.projectRoot))
+
+    // Build zero-count Istanbul map for all source files by parsing each file
+    // with Babel. Babel is used here only as a TypeScript/JSX-capable parser —
+    // it does not instrument or modify any code. The resulting zero map has the
+    // full source-accurate statement granularity that Turbopack loses at compile time.
+    const zeroMap = libCoverage.createCoverageMap({})
+    await this.converter.addUncoveredFiles(zeroMap, safeFiles)
+
+    log(`Built source structure for ${safeFiles.length} files`)
+
+    // Treat E2E rebase as: merge zero-coverage base with E2E coverage.
+    // This is the same pipeline as `nextcov merge` so statements, functions,
+    // AND branches are all handled consistently.
+    //
+    // Use rebaseOntoMap: the zero map is ALWAYS the authoritative structure skeleton.
+    // This avoids the isBabelQuality heuristic which breaks when esbuild produces
+    // Infinity end.column values that JSON.stringify serializes to null, causing
+    // rebaseCoarserMaps to incorrectly treat the zero map as non-babel-quality
+    // and pick the Turbopack structure instead.
+    // rebaseOntoMap already includes uncovered files (zero counts from structure),
+    // so no further merge with zeroMap is needed.
+    const merged = rebaseOntoMap(zeroMap, coverageMap)
+
+    const uncoveredCount = safeFiles.length - coverageMap.files().length
+    if (uncoveredCount > 0) {
+      log(`   Added ${uncoveredCount} uncovered source files with zero counts`)
     }
 
-    // Filter out files already in coverage
-    // Normalize paths to forward slashes for cross-platform comparison
-    const coveredFiles = new Set(coverageMap.files().map(normalizePath))
-    const uncoveredFiles = sourceFiles
-      .filter((f) => !coveredFiles.has(normalizePath(f)))
-      // Path traversal protection: ensure all files are within project root
-      .filter((f) => isPathWithinBase(f, this.projectRoot))
-
-    log(`Adding ${uncoveredFiles.length} source files for complete coverage...`)
-
-    await this.converter.addUncoveredFiles(coverageMap, uncoveredFiles)
+    return merged
   }
 
   /**
@@ -156,4 +194,3 @@ export class CoverageProcessor {
     return this.reporter.getSummary(coverageMap)
   }
 }
-

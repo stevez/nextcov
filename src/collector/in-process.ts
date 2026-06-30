@@ -81,7 +81,7 @@ export class InProcessV8Collector {
       let source: string | undefined
       const filePath = this._urlToPath(script.url)
       if (filePath && existsSync(filePath)) {
-        try { source = readFileSync(filePath, 'utf-8') } catch {}
+        try { source = readFileSync(filePath, 'utf-8') } catch (_e) { /* file unreadable, skip */ }
       }
 
       entries.push({
