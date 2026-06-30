@@ -52,7 +52,16 @@ export function rebaseCoarserMaps(maps: CoverageMap[]): CoverageMap[] {
     }
   }
 
-  // For each file, find the richest structure (most statements)
+  // For each file, find the richest structure (most statements) to use as the
+  // rebase skeleton. More statements = finer AST granularity = better skeleton.
+  //
+  // Note: isBabelQuality (end.column !== null) was previously used here to prefer
+  // esbuild/Vitest maps over Turbopack maps, but esbuild produces end.column: Infinity
+  // which JSON.stringify serializes to null — indistinguishable from Turbopack's null
+  // after a coverage-final.json round-trip. So statement count is the only reliable
+  // signal. When E2E coverage has been pre-rebased via rebaseOntoSourceStructure, both
+  // unit and E2E maps already share esbuild structure, so counts are similar and
+  // "most statements wins" produces correct results.
   const richestByFile = new Map<string, { stmtCount: number; mapIdx: number; data: FileCoverageData }>()
 
   for (let i = 0; i < maps.length; i++) {
@@ -110,12 +119,17 @@ export function rebaseCoarserMaps(maps: CoverageMap[]): CoverageMap[] {
 
       const rebased_b: Record<string, number[]> = {}
       for (const [key, branch] of Object.entries(richest.data.branchMap || {}) as [string, BranchEntry][]) {
+        const expectedLen = (branch as unknown as { locations: unknown[] }).locations?.length ?? 2
         const exact = lookups.branches.get(locationKey(branch.loc))
         if (exact !== undefined) {
-          rebased_b[key] = exact
+          rebased_b[key] = exact.length === expectedLen
+            ? exact
+            : Array.from({ length: expectedLen }, (_, i) => exact[i] ?? 0)
         } else {
           const byLine = lookups.branchesByLine.get(lineKey(branch.loc))
-          rebased_b[key] = byLine ?? new Array((branch as unknown as { locations: unknown[] }).locations?.length ?? 2).fill(0)
+          rebased_b[key] = byLine
+            ? Array.from({ length: expectedLen }, (_, i) => byLine[i] ?? 0)
+            : new Array(expectedLen).fill(0)
         }
       }
 
@@ -135,6 +149,79 @@ export function rebaseCoarserMaps(maps: CoverageMap[]): CoverageMap[] {
 
     return libCoverage.createCoverageMap(newMapData as unknown as Parameters<typeof libCoverage.createCoverageMap>[0])
   })
+}
+
+/**
+ * Rebase `source` coverage hits onto `structure`'s statement/fn/branch maps.
+ *
+ * Unlike rebaseCoarserMaps, the structure map is ALWAYS authoritative —
+ * its statementMap/fnMap/branchMap is used regardless of statement counts or
+ * quality tier. Use this when the caller knows which map is the correct
+ * skeleton (e.g. the esbuild zero-map in rebaseOntoSourceStructure).
+ *
+ * Files only in `source` (not in `structure`) are excluded — they fall
+ * outside the known source structure (include patterns).
+ *
+ * @param structure - Authoritative coverage map (esbuild zero-map)
+ * @param source    - Coverage to rebase hits from (E2E / Turbopack)
+ */
+export function rebaseOntoMap(structure: CoverageMap, source: CoverageMap): CoverageMap {
+  const newMapData: Record<string, FileCoverageData> = {}
+  const sourceFiles = new Set(source.files())
+
+  for (const file of structure.files()) {
+    const structureData = structure.fileCoverageFor(file).toJSON() as FileCoverageData
+
+    if (!sourceFiles.has(file)) {
+      // File not hit by E2E — keep zero counts from structure
+      newMapData[file] = structureData
+      continue
+    }
+
+    const sourceData = source.fileCoverageFor(file).toJSON() as FileCoverageData
+    const lookups = buildLookups(sourceData)
+
+    const rebased_s: Record<string, number> = {}
+    for (const [key, loc] of Object.entries(structureData.statementMap || {}) as [string, Location][]) {
+      const exact = lookups.stmts.get(locationKey(loc))
+      rebased_s[key] = exact !== undefined ? exact : (lookups.stmtsByLine.get(lineKey(loc)) ?? 0)
+    }
+
+    const rebased_f: Record<string, number> = {}
+    for (const [key, fn] of Object.entries(structureData.fnMap || {}) as [string, FnEntry][]) {
+      const exact = lookups.fns.get(locationKey(fn.loc))
+      rebased_f[key] = exact !== undefined ? exact : (lookups.fnsByLine.get(lineKey(fn.loc)) ?? 0)
+    }
+
+    const rebased_b: Record<string, number[]> = {}
+    for (const [key, branch] of Object.entries(structureData.branchMap || {}) as [string, BranchEntry][]) {
+      const expectedLen = (branch as unknown as { locations: unknown[] }).locations?.length ?? 2
+      const exact = lookups.branches.get(locationKey(branch.loc))
+      if (exact !== undefined) {
+        // Exact match: truncate/pad to the zero-map arm count so Turbopack
+        // branches with different arm counts don't inflate the denominator.
+        rebased_b[key] = exact.length === expectedLen
+          ? exact
+          : Array.from({ length: expectedLen }, (_, i) => exact[i] ?? 0)
+      } else {
+        const byLine = lookups.branchesByLine.get(lineKey(branch.loc))
+        // byLine comes from E2E source and may have more or fewer arms than the
+        // zero map branch. Always normalise to the zero map's expected arm count.
+        rebased_b[key] = byLine
+          ? Array.from({ length: expectedLen }, (_, i) => byLine[i] ?? 0)
+          : new Array(expectedLen).fill(0)
+      }
+    }
+
+    newMapData[file] = {
+      ...structureData,
+      s: rebased_s,
+      f: rebased_f,
+      b: rebased_b,
+    }
+  }
+
+  return libCoverage.createCoverageMap(newMapData as unknown as Parameters<typeof libCoverage.createCoverageMap>[0])
 }
 
 /**

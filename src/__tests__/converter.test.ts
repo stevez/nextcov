@@ -922,51 +922,103 @@ describe('CoverageConverter', () => {
   })
 
   describe('createEmptyCoverage', () => {
-    it('should return null for invalid TypeScript', async () => {
+    let emptyDir: string
+    let emptyLoader: SourceMapLoader
+    let emptyConverter: CoverageConverter
+
+    beforeEach(async () => {
+      emptyDir = join(tmpdir(), `empty-cov-${Date.now()}`)
+      await fs.mkdir(join(emptyDir, 'src'), { recursive: true })
+      emptyLoader = new SourceMapLoader(emptyDir)
+      emptyConverter = new CoverageConverter(emptyDir, emptyLoader)
+    })
+
+    afterEach(async () => {
+      try {
+        await fs.rm(emptyDir, { recursive: true, force: true })
+      } catch { /* ignore */ }
+    })
+
+    it('produces zero-count coverage for a simple TypeScript file', async () => {
+      const filePath = join(emptyDir, 'src', 'simple.ts')
+      await fs.writeFile(filePath, 'export const x = 1\nexport const y = 2\n')
+
+      const result = await emptyConverter['createEmptyCoverage'](filePath, await fs.readFile(filePath, 'utf-8'))
+
+      expect(result).not.toBeNull()
+      const fc = result![filePath] as { statementMap: Record<string, unknown>; s: Record<string, number>; path: string }
+      expect(Object.keys(fc.statementMap).length).toBeGreaterThan(0)
+      expect(Object.values(fc.s).every(v => v === 0)).toBe(true)
+      expect(fc.path).toBe(filePath)
+    })
+
+    it('produces zero-count coverage for a TypeScript file with a function', async () => {
+      const filePath = join(emptyDir, 'src', 'fn.ts')
+      await fs.writeFile(filePath, [
+        'export function add(a: number, b: number): number {',
+        '  return a + b',
+        '}',
+      ].join('\n'))
+
+      const result = await emptyConverter['createEmptyCoverage'](filePath, await fs.readFile(filePath, 'utf-8'))
+
+      expect(result).not.toBeNull()
+      const fc = result![filePath] as {
+        statementMap: Record<string, unknown>
+        fnMap: Record<string, unknown>
+        s: Record<string, number>
+        f: Record<string, number>
+      }
+      // Function should be tracked
+      expect(Object.keys(fc.fnMap).length).toBeGreaterThan(0)
+      expect(Object.values(fc.f).every(v => v === 0)).toBe(true)
+      // All hits zero
+      expect(Object.values(fc.s).every(v => v === 0)).toBe(true)
+    })
+
+    it('produces zero-count coverage for a TSX file with JSX', async () => {
+      const filePath = join(emptyDir, 'src', 'Button.tsx')
+      await fs.writeFile(filePath, [
+        'export function Button({ label }: { label: string }) {',
+        '  return <button>{label}</button>',
+        '}',
+      ].join('\n'))
+
+      const result = await emptyConverter['createEmptyCoverage'](filePath, await fs.readFile(filePath, 'utf-8'))
+
+      expect(result).not.toBeNull()
+      const fc = result![filePath] as { statementMap: Record<string, unknown>; s: Record<string, number> }
+      expect(Object.keys(fc.statementMap).length).toBeGreaterThan(0)
+      expect(Object.values(fc.s).every(v => v === 0)).toBe(true)
+    })
+
+    it('returns null gracefully for unparseable code', async () => {
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const filePath = join(emptyDir, 'src', 'broken.ts')
 
-      const result = await converter['createEmptyCoverage'](
-        '/project/src/invalid.ts',
-        'this is not valid { typescript ['
-      )
+      // esbuild will fail on severely broken syntax
+      const result = await emptyConverter['createEmptyCoverage'](filePath, '!!!@@@###$$$')
 
-      // May or may not be null depending on error recovery
+      // Should return null without throwing
       expect(result === null || typeof result === 'object').toBe(true)
       consoleSpy.mockRestore()
     })
 
-    it('should attempt to create coverage for TypeScript file', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    it('produces more statements than a coarse 1-statement representation', async () => {
+      const filePath = join(emptyDir, 'src', 'multi.ts')
+      await fs.writeFile(filePath, [
+        'export const a = 1',
+        'export const b = 2',
+        'export const c = 3',
+        'export const d = 4',
+      ].join('\n'))
 
-      // The function may return null if ast-v8-to-istanbul fails with the file URL
-      // We're just testing that it doesn't throw
-      const result = await converter['createEmptyCoverage'](
-        '/project/src/valid.ts',
-        'export const x = 1'
-      )
+      const result = await emptyConverter['createEmptyCoverage'](filePath, await fs.readFile(filePath, 'utf-8'))
 
-      // Result may be null or object depending on environment
-      expect(result === null || typeof result === 'object').toBe(true)
-      consoleSpy.mockRestore()
-    })
-
-    it('should attempt to handle JSX files', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const jsxCode = `
-        export function Component() {
-          return <div>Hello</div>
-        }
-      `
-
-      // The function may return null if ast-v8-to-istanbul fails
-      const result = await converter['createEmptyCoverage'](
-        '/project/src/Component.tsx',
-        jsxCode
-      )
-
-      // Result may be null or object depending on environment
-      expect(result === null || typeof result === 'object').toBe(true)
-      consoleSpy.mockRestore()
+      expect(result).not.toBeNull()
+      const fc = result![filePath] as { statementMap: Record<string, unknown> }
+      // Must see multiple statements (not collapsed into 1 like Turbopack would)
+      expect(Object.keys(fc.statementMap).length).toBeGreaterThan(1)
     })
   })
 
@@ -1289,17 +1341,21 @@ describe('CoverageConverter', () => {
       }
     })
 
-    it('should add uncovered file to coverage map', async () => {
+    it('should add uncovered file to coverage map with zero hit counts', async () => {
       const testFile = join(testDir, 'src', 'uncovered.ts')
-      await fs.writeFile(testFile, 'export const uncovered = true')
+      await fs.writeFile(testFile, 'export function foo() { return 42 }\nexport const bar = 1\n')
 
       const libCoverage = require('istanbul-lib-coverage')
       const coverageMap = libCoverage.createCoverageMap({})
 
       await testConverter.addUncoveredFiles(coverageMap, [testFile])
 
-      // May or may not add file depending on ast-v8-to-istanbul behavior
-      expect(coverageMap.files().length >= 0).toBe(true)
+      expect(coverageMap.files().length).toBe(1)
+      const fc = coverageMap.fileCoverageFor(testFile).toJSON()
+      // statementMap populated (esbuild parsed the source)
+      expect(Object.keys(fc.statementMap).length).toBeGreaterThan(0)
+      // all hits are zero
+      expect(Object.values(fc.s as Record<string, number>).every(v => v === 0)).toBe(true)
     })
 
     it('should skip files already in coverage', async () => {
