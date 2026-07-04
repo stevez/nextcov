@@ -25,7 +25,7 @@ import { containsSourceRoot } from '@/parsers/webpack.js'
 import { isLocalFileUrl, isNodeModulesUrl } from '@/parsers/index.js'
 import { log, safeClose } from '@/utils/logger.js'
 import {
-  type MonocartCDPClient,
+  type CDPClientInstance,
   type BaseCoverageEntry,
   connectToCdp,
   attachSourceContent,
@@ -52,7 +52,7 @@ export interface V8ServerCollectorConfig {
  */
 export class V8ServerCoverageCollector {
   private config: Required<V8ServerCollectorConfig>
-  private cdpClient: MonocartCDPClient | null = null
+  private cdpClient: CDPClientInstance | null = null
 
   constructor(config?: Partial<V8ServerCollectorConfig>) {
     // Get v8 coverage dir from env or config
@@ -90,7 +90,6 @@ export class V8ServerCoverageCollector {
 
     try {
       // Use CDP to execute v8.takeCoverage() in the remote process
-      // This is what monocart's writeCoverage() does internally
       const dir = await this.cdpClient.writeCoverage()
       log(`  ✓ Triggered v8.takeCoverage(), coverage dir: ${dir}`)
       return dir || this.config.v8CoverageDir

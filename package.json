@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -49,7 +49,7 @@
     "vitest"
   ],
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.0.0"
   },
   "peerDependencies": {
     "@playwright/test": "^1.40.0"
@@ -68,7 +68,6 @@
     "istanbul-lib-report": "^3.0.1",
     "istanbul-lib-source-maps": "^5.0.0",
     "istanbul-reports": "^3.1.0",
-    "monocart-coverage-reports": "^2.12.12",
     "vite": "^8.1.2"
   },
   "devDependencies": {

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-07-04
+
+### Changed
+
+- **Remove `monocart-coverage-reports` dependency** — The CDP client is now implemented directly in `src/collector/cdp-client.ts` using Node.js 22's built-in `WebSocket` global, eliminating a large transitive dependency. The public API is unchanged.
+
+- **Bump `engines.node` to `>=22.0.0`** — Required for the native `WebSocket` global used by the new CDP client.
+
+- **Disable worker threads on Windows by default** — Worker threads are now automatically set to 0 on Windows (`process.platform === 'win32'`) to avoid a `STATUS_OBJECT_NAME_NOT_FOUND` (0xC0000034) crash caused by Rollup's native Rust binary (`@rollup/rollup-win32-x64-msvc`) failing to initialise in worker thread context. Processing falls back to single-threaded mode via the existing `runTaskDirect` path. Override with `NEXTCOV_WORKERS=<n>` or the `workers` fixture option if needed.
+
 ## [1.4.3] - 2026-06-30
 
 ### Added

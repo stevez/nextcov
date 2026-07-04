@@ -20,8 +20,8 @@ vi.mock('@/utils/logger.js', () => ({
   safeClose: vi.fn(),
 }))
 
-// Mock monocart-coverage-reports CDPClient
-vi.mock('monocart-coverage-reports', () => ({
+// Mock CDPClient
+vi.mock('../cdp-client.js', () => ({
   CDPClient: vi.fn(),
 }))
 
@@ -121,7 +121,7 @@ describe('V8ServerCoverageCollector', () => {
   describe('connect', () => {
     it('should return false when CDP connection fails', async () => {
       const { log } = await import('@/utils/logger.js')
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockRejectedValue(new Error('Connection failed'))
 
       const result = await collector.connect()
@@ -133,7 +133,7 @@ describe('V8ServerCoverageCollector', () => {
     it('should return true when CDP connection succeeds', async () => {
       const { log } = await import('@/utils/logger.js')
       const mockClient = createMockCoverageClient()
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       const result = await collector.connect()
@@ -144,7 +144,7 @@ describe('V8ServerCoverageCollector', () => {
 
     it('should connect to the correct port', async () => {
       const mockClient = createMockCoverageClient()
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       const customCollector = new V8ServerCoverageCollector({ cdpPort: 8888 })
@@ -168,7 +168,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue('/some/coverage/dir'),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       await collector.connect()
@@ -182,7 +182,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(''),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       await collector.connect()
@@ -196,7 +196,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockRejectedValue(new Error('Write failed')),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       await collector.connect()
@@ -295,7 +295,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue('/nonexistent/dir'),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       const { existsSync } = await import('node:fs')
@@ -311,7 +311,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(testCacheDir),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       const { existsSync, readdirSync } = await import('node:fs')
@@ -328,7 +328,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(testCacheDir),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       const { existsSync, readdirSync, readFileSync } = await import('node:fs')
@@ -353,7 +353,7 @@ describe('V8ServerCoverageCollector', () => {
       const mockClient = createMockCoverageClient({
         writeCoverage: vi.fn().mockResolvedValue(testCacheDir),
       })
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
       const { existsSync, readdirSync } = await import('node:fs')
@@ -455,7 +455,7 @@ describe('startV8ServerCoverage and stopV8ServerCoverage', () => {
 
   it('should start and connect via startV8ServerCoverage', async () => {
     const mockClient = createMockCoverageClient()
-    const { CDPClient } = await import('monocart-coverage-reports')
+    const { CDPClient } = await import('../cdp-client.js')
     vi.mocked(CDPClient).mockResolvedValue(mockClient)
 
     const result = await startV8ServerCoverage({ cdpPort: 9230 })
@@ -464,7 +464,7 @@ describe('startV8ServerCoverage and stopV8ServerCoverage', () => {
   })
 
   it('should return false if connection fails', async () => {
-    const { CDPClient } = await import('monocart-coverage-reports')
+    const { CDPClient } = await import('../cdp-client.js')
     vi.mocked(CDPClient).mockRejectedValue(new Error('Connection failed'))
 
     const result = await startV8ServerCoverage({ cdpPort: 9230 })
