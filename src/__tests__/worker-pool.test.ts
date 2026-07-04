@@ -229,9 +229,13 @@ describe('worker-pool', () => {
       await terminateWorkerPool() // Reset global pool
 
       const pool = getWorkerPool()
-      // Should fall back to auto-detection (min 2, max 8)
-      expect(pool.poolSize).toBeGreaterThanOrEqual(2)
-      expect(pool.poolSize).toBeLessThanOrEqual(8)
+      // Should fall back to auto-detection (min 2, max 8 on non-Windows; 0 on Windows)
+      if (process.platform === 'win32') {
+        expect(pool.poolSize).toBe(0)
+      } else {
+        expect(pool.poolSize).toBeGreaterThanOrEqual(2)
+        expect(pool.poolSize).toBeLessThanOrEqual(8)
+      }
     })
 
     it('should ignore negative NEXTCOV_WORKERS values', async () => {
@@ -239,8 +243,12 @@ describe('worker-pool', () => {
       await terminateWorkerPool() // Reset global pool
 
       const pool = getWorkerPool()
-      // Should fall back to auto-detection
-      expect(pool.poolSize).toBeGreaterThanOrEqual(2)
+      // Should fall back to auto-detection (0 on Windows)
+      if (process.platform === 'win32') {
+        expect(pool.poolSize).toBe(0)
+      } else {
+        expect(pool.poolSize).toBeGreaterThanOrEqual(2)
+      }
     })
   })
 })

@@ -1,7 +1,7 @@
 /**
  * Dev Mode Server Coverage Collector
  *
- * Collects server-side coverage in dev mode using monocart-coverage-reports CDPClient.
+ * Collects server-side coverage in dev mode using a CDP client.
  * In dev mode, server scripts have inline source maps that need to be
  * extracted from the script source.
  *
@@ -17,18 +17,13 @@ import { DevModeSourceMapExtractor } from '@/utils/dev-mode-extractor.js'
 import { DEFAULT_DEV_MODE_OPTIONS, DEFAULT_NEXTCOV_CONFIG } from '@/utils/config.js'
 import { log } from '@/utils/logger.js'
 import {
-  type MonocartCDPClient,
+  type CDPClientInstance,
   type BaseCoverageEntry,
   isClientConnected,
   collectCoverage,
   connectAndStartCoverage,
 } from './cdp-utils.js'
-
-/** Coverage entry returned by monocart stopJSCoverage */
-interface MonocartCoverageEntry extends BaseCoverageEntry {
-  scriptId: string
-  source: string
-}
+import type { JSCoverageEntry } from './cdp-client.js'
 
 export interface DevServerCollectorConfig {
   /** CDP port for the server worker process (default: 9231) */
@@ -47,7 +42,7 @@ export interface DevServerCoverageEntry extends BaseCoverageEntry {
 /**
  * Dev Mode Server Coverage Collector
  *
- * Uses monocart-coverage-reports CDPClient to:
+ * Uses CDP client to:
  * 1. Connect to CDP and start JS coverage collection
  * 2. Automatically collect script sources via Debugger API
  * 3. Stop coverage and get results with source attached
@@ -55,7 +50,7 @@ export interface DevServerCoverageEntry extends BaseCoverageEntry {
  */
 export class DevModeServerCollector {
   private config: DevServerCollectorConfig
-  private client: MonocartCDPClient | null = null
+  private client: CDPClientInstance | null = null
   private extractor: DevModeSourceMapExtractor
 
   constructor(config?: Partial<DevServerCollectorConfig>) {
@@ -87,7 +82,7 @@ export class DevModeServerCollector {
       return []
     }
 
-    return collectCoverage<MonocartCoverageEntry, DevServerCoverageEntry>(this.client, {
+    return collectCoverage<JSCoverageEntry, DevServerCoverageEntry>(this.client, {
       mode: 'dev mode',
       filter: (entries) => {
         log(`  Found ${entries.length} total scripts`)
@@ -103,7 +98,7 @@ export class DevModeServerCollector {
   /**
    * Transform coverage entries and extract source maps
    */
-  private transformEntries(entries: MonocartCoverageEntry[]): DevServerCoverageEntry[] {
+  private transformEntries(entries: JSCoverageEntry[]): DevServerCoverageEntry[] {
     return entries.map((coverage) => {
       const extracted = this.extractor.extractFromScriptSource(coverage.url, coverage.source)
 
@@ -142,11 +137,9 @@ export class DevModeServerCollector {
   }
 
   /**
-   * Wait for webpack scripts - now a no-op since monocart handles this
-   * Kept for API compatibility
+   * Wait for webpack scripts - no-op, kept for API compatibility
    */
   async waitForWebpackScripts(_timeoutMs: number = 10000): Promise<boolean> {
-    // Monocart's startJSCoverage already waits for script parsing
     return true
   }
 

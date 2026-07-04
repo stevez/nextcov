@@ -7,14 +7,13 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { CDPClient } from 'monocart-coverage-reports'
+import { CDPClient } from './cdp-client.js'
+import type { CDPClientInstance } from './cdp-client.js'
+export type { CDPClientInstance } from './cdp-client.js'
 import { log, safeClose } from '@/utils/logger.js'
 
 /** Default timeout for CDP port availability check (ms) */
 const CDP_CHECK_TIMEOUT = 2000
-
-/** Monocart CDPClient type */
-export type MonocartCDPClient = Awaited<ReturnType<typeof CDPClient>>
 
 /** Base coverage entry from CDP */
 export interface BaseCoverageEntry {
@@ -31,7 +30,7 @@ export interface BaseCoverageEntry {
  * Check if CDP client is connected
  * @returns true if connected, false otherwise (logs warning)
  */
-export function isClientConnected(client: unknown, mode?: string): client is NonNullable<MonocartCDPClient> {
+export function isClientConnected(client: unknown, mode?: string): client is CDPClientInstance {
   if (!client) {
     const suffix = mode ? ` (${mode})` : ''
     log(`  ⚠️ CDP not connected${suffix}`)
@@ -76,7 +75,7 @@ export function logCollectionError(error: unknown, mode?: string): void {
  * for CDP coverage collection.
  */
 export async function collectCoverage<TRaw, TResult>(
-  client: NonNullable<MonocartCDPClient>,
+  client: CDPClientInstance,
   options: {
     mode?: string
     filter: (entries: TRaw[]) => TRaw[]
@@ -132,7 +131,6 @@ export function attachSourceContent<T extends BaseCoverageEntry>(entries: T[]): 
 
 /**
  * Check if a CDP port is available by making a quick HTTP request to /json/list.
- * This avoids triggering monocart's error logging when the port is unavailable.
  *
  * @param port - CDP port to check
  * @param timeout - Timeout in milliseconds (default: 2000)
@@ -177,11 +175,10 @@ export async function connectToCdp(
   mode?: string,
   skipAvailabilityCheck: boolean = false,
   timeout: number = DEFAULT_CDP_TIMEOUT
-): Promise<MonocartCDPClient | null> {
+): Promise<CDPClientInstance | null> {
   const suffix = mode ? ` (${mode})` : ''
 
   // Pre-check: verify CDP port is available before calling CDPClient
-  // This avoids monocart's noisy [MCR] Error logging when port is unavailable
   if (!skipAvailabilityCheck) {
     const available = await isCdpPortAvailable(port)
     if (!available) {
@@ -230,7 +227,7 @@ export async function connectAndStartCoverage(
   mode?: string,
   skipAvailabilityCheck: boolean = false,
   timeout: number = DEFAULT_CDP_TIMEOUT
-): Promise<MonocartCDPClient | null> {
+): Promise<CDPClientInstance | null> {
   const client = await connectToCdp(port, mode, skipAvailabilityCheck, timeout)
   if (!client) {
     return null

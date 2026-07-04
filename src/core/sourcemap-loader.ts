@@ -79,7 +79,7 @@ export class SourceMapLoader {
    * Includes path traversal protection to prevent escaping project boundaries.
    */
   urlToFilePath(url: string): string | null {
-    let filePath: string | null = null
+    let filePath: string | null
 
     // Handle file:// URLs
     if (url.startsWith(FILE_PROTOCOL)) {

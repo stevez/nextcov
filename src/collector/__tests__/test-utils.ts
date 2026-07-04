@@ -1,10 +1,10 @@
 import { vi, type Mock } from 'vitest'
-import type { CoverageClient } from 'monocart-coverage-reports'
+import type { CDPClientInstance } from '../cdp-client.js'
 
-/** Create a mock CoverageClient with all required methods */
+/** Create a mock CDPClientInstance with all required methods */
 export function createMockCoverageClient(
-  overrides?: Partial<Record<keyof CoverageClient, Mock>>
-): CoverageClient {
+  overrides?: Partial<Record<keyof CDPClientInstance, Mock>>
+): CDPClientInstance {
   return {
     startJSCoverage: vi.fn().mockResolvedValue(undefined),
     stopJSCoverage: vi.fn().mockResolvedValue([]),

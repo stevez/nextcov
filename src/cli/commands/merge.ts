@@ -119,7 +119,7 @@ export function stripCoverageDirectives(coverageJson: Record<string, FileCoverag
 
   for (const [file, data] of Object.entries(coverageJson)) {
     // Read source file to check line content
-    let lines: string[] = []
+    let lines: string[]
     try {
       lines = readFileSync(file, 'utf-8').split('\n')
     } catch {

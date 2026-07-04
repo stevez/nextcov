@@ -6,6 +6,8 @@
  *
  * Set NEXTCOV_WORKERS=0 to disable worker threads and run in single-threaded mode.
  * This can be faster in environments with high worker thread overhead (e.g., some CI).
+ * On Windows, worker threads are disabled by default because Vite's parseAstAsync
+ * (backed by a native Rust addon) crashes with STATUS_OBJECT_NAME_NOT_FOUND in workers.
  */
 import { Worker } from 'node:worker_threads'
 import { cpus } from 'node:os'
@@ -29,6 +31,14 @@ function getWorkerCount(): number {
     if (!isNaN(count) && count >= 0) {
       return count
     }
+  }
+
+  // Worker threads on Windows crash with STATUS_OBJECT_NAME_NOT_FOUND (0xC0000034)
+  // when native addons (Rollup's Rust binary via Vite's parseAstAsync) try to access
+  // OS-level named objects that are only visible from the main thread.
+  // Fall back to single-threaded mode on Windows until the worker no longer needs Vite.
+  if (process.platform === 'win32') {
+    return 0
   }
 
   const coreCount = cpus().length

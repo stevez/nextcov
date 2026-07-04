@@ -71,7 +71,7 @@ export class InProcessV8Collector {
   async collect(): Promise<InProcessCoverageEntry[]> {
     if (!this.session) return []
 
-    const { result } = await this.session.post('Profiler.takePreciseCoverage') as { result: Array<{ scriptId: string; url: string; functions: any[] }> }
+    const { result } = await this.session.post('Profiler.takePreciseCoverage') as { result: Array<{ scriptId: string; url: string; functions: InProcessCoverageEntry['functions'] }> }
 
     const entries: InProcessCoverageEntry[] = []
     for (const script of result) {

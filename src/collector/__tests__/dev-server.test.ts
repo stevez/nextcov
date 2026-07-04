@@ -14,8 +14,8 @@ vi.mock('@/utils/logger.js', () => ({
   safeClose: vi.fn(),
 }))
 
-// Mock monocart-coverage-reports CDPClient
-vi.mock('monocart-coverage-reports', () => ({
+// Mock CDPClient
+vi.mock('../cdp-client.js', () => ({
   CDPClient: vi.fn(),
 }))
 
@@ -64,7 +64,7 @@ describe('DevModeServerCollector', () => {
   describe('connect', () => {
     it('should return false when CDPClient returns null', async () => {
       const { log } = await import('@/utils/logger.js')
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       // @ts-expect-error - testing null return value which can happen at runtime
       vi.mocked(CDPClient).mockResolvedValue(null)
 
@@ -76,7 +76,7 @@ describe('DevModeServerCollector', () => {
 
     it('should return false when CDPClient throws', async () => {
       const { log } = await import('@/utils/logger.js')
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockRejectedValue(new Error('Connection refused'))
 
       const result = await collector.connect()
@@ -91,7 +91,7 @@ describe('DevModeServerCollector', () => {
         stopJSCoverage: vi.fn().mockResolvedValue([]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       const result = await collector.connect()
@@ -118,7 +118,7 @@ describe('DevModeServerCollector', () => {
         stopJSCoverage: vi.fn().mockResolvedValue(null),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
@@ -165,7 +165,7 @@ describe('DevModeServerCollector', () => {
         ]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
@@ -198,7 +198,7 @@ describe('DevModeServerCollector', () => {
         ]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
@@ -217,7 +217,7 @@ describe('DevModeServerCollector', () => {
         stopJSCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
@@ -233,7 +233,7 @@ describe('DevModeServerCollector', () => {
         stopJSCoverage: vi.fn().mockRejectedValue(new Error('Collection failed')),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       const { safeClose } = await import('@/utils/logger.js')
@@ -267,7 +267,7 @@ describe('DevModeServerCollector', () => {
         stopJSCoverage: vi.fn().mockResolvedValue([]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
@@ -291,7 +291,7 @@ describe('DevModeServerCollector', () => {
         stopJSCoverage: vi.fn().mockResolvedValue([]),
         close: vi.fn().mockResolvedValue(undefined),
       }
-      const { CDPClient } = await import('monocart-coverage-reports')
+      const { CDPClient } = await import('../cdp-client.js')
       vi.mocked(CDPClient).mockResolvedValue(mockClient as any)
 
       await collector.connect()
