@@ -7,7 +7,7 @@
 
 import { existsSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
-import { parseAstAsync, transformWithEsbuild } from 'vite'
+import { parseAstAsync, transformWithOxc } from 'vite'
 import _astV8ToIstanbul from 'ast-v8-to-istanbul'
 import libCoverage from 'istanbul-lib-coverage'
 import libSourceMaps from 'istanbul-lib-source-maps'
@@ -955,12 +955,12 @@ export class CoverageConverter {
   /**
    * Create empty coverage entry for an uncovered file.
    *
-   * Uses the same esbuild pipeline as Vitest: transformWithEsbuild compiles
+   * Uses the same OXC pipeline as Vitest: transformWithOxc compiles
    * TypeScript/TSX → JavaScript with a source map, then parseAstAsync parses
    * the compiled JS, and astV8ToIstanbul maps positions back to the original
    * source via the source map.
    *
-   * Because the positions come from esbuild (identical to unit/component
+   * Because the positions come from OXC (identical to unit/component
    * coverage), a subsequent `nextcov merge` rebase always finds exact
    * line:col matches — no fallback, no misattribution.
    */
@@ -971,18 +971,12 @@ export class CoverageConverter {
     try {
       const fileUrl = toFileUrl(filePath, this.projectRoot)
 
-      // Transform TypeScript/TSX → JS using esbuild (same as Vitest's pipeline).
+      // Transform TypeScript/TSX → JS using OXC (bundled inside Vite via Rolldown).
       // sourcemap:true gives us the position mapping back to the original source.
-      //
-      // IMPORTANT: Use platform:'neutral' so esbuild does NOT constant-fold
-      // process.env.NODE_ENV branches. With the default platform ('browser'),
-      // esbuild sees NODE_ENV='production' in the env and eliminates the
-      // 'else' arm of `NODE_ENV === 'production' ? A : B`, producing fewer
-      // branches in the zero-coverage map than Vitest (which uses platform:'browser'
-      // but runs with NODE_ENV='test', so no constant-folding occurs there).
-      const { code: compiledCode, map } = await transformWithEsbuild(code, filePath, {
+      // OXC does not constant-fold process.env.NODE_ENV without an explicit `define`,
+      // so all branches are preserved in the zero-coverage map — matching Vitest output.
+      const { code: compiledCode, map } = await transformWithOxc(code, filePath, {
         sourcemap: true,
-        platform: 'neutral',
       })
 
       // Parse the compiled JS with Vite's fast Rollup-based parser

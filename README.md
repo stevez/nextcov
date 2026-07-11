@@ -82,8 +82,6 @@ npm install nextcov --save-dev
 npm install @playwright/test --save-dev
 ```
 
-> **Note:** `esbuild` is included as a direct dependency of nextcov (required since Vite 8 no longer bundles it). It will be installed automatically — no manual installation needed.
-
 ## Quick Setup with `nextcov init`
 
 The fastest way to get started is with the `init` command:

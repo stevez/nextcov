@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2] - 2026-07-10
+
+### Changed
+
+- **Switch from `transformWithEsbuild` to `transformWithOxc`** — Zero-coverage generation now uses Vite's OXC-based transform (bundled inside Vite via Rolldown) instead of esbuild. OXC does not constant-fold `process.env.NODE_ENV` branches without an explicit `define`, so all branches are preserved in the zero-coverage map, matching Vitest output. This eliminates the need for `esbuild` as a direct dependency.
+
+### Fixed
+
+- **Remove `esbuild` direct dependency** — No longer needed now that `transformWithOxc` handles TypeScript/TSX compilation. `esbuild` was added in v1.5.1 as a workaround for Vite 8 removing its bundled esbuild; the switch to OXC resolves this cleanly with no extra dependency.
+
 ## [1.5.1] - 2026-07-10
 
 ### Fixed

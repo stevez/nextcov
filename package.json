@@ -1,6 +1,6 @@
 {
   "name": "nextcov",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Collect test coverage for Playwright E2E tests in Next.js applications",
   "author": "Steve Zhang",
   "license": "MIT",
@@ -63,7 +63,6 @@
     "ast-v8-to-istanbul": "^1.0.4",
     "chalk": "^4.1.2",
     "convert-source-map": "^2.0.0",
-    "esbuild": ">=0.21.0",
     "glob": "^11.1.0",
     "istanbul-lib-coverage": "^3.2.0",
     "istanbul-lib-report": "^3.0.1",
