@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1] - 2026-07-10
+
+### Fixed
+
+- **Add `esbuild` as a direct dependency** — Vite 8 no longer bundles esbuild (it became a peer dependency of Vite). nextcov uses `transformWithEsbuild` to compile TypeScript/TSX for zero-coverage generation, so esbuild must be present. Adding it as an explicit dependency ensures it is installed automatically alongside nextcov without requiring users to install it manually.
+
 ## [1.5.0] - 2026-07-04
 
 ### Changed
