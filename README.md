@@ -72,7 +72,7 @@ npm install nextcov --save-dev
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 22
 - Next.js 14+ or Vite 5+
 - Playwright 1.40+
 
@@ -81,6 +81,8 @@ npm install nextcov --save-dev
 ```bash
 npm install @playwright/test --save-dev
 ```
+
+> **Note:** `esbuild` is included as a direct dependency of nextcov (required since Vite 8 no longer bundles it). It will be installed automatically — no manual installation needed.
 
 ## Quick Setup with `nextcov init`
 
