@@ -955,14 +955,14 @@ export class CoverageConverter {
   /**
    * Create empty coverage entry for an uncovered file.
    *
-   * Uses the same OXC pipeline as Vitest: transformWithOxc compiles
-   * TypeScript/TSX → JavaScript with a source map, then parseAstAsync parses
-   * the compiled JS, and astV8ToIstanbul maps positions back to the original
-   * source via the source map.
+   * Uses Vite's OXC transform: transformWithOxc compiles TypeScript/TSX →
+   * JavaScript with a source map, then parseAstAsync parses the compiled JS,
+   * and astV8ToIstanbul maps positions back to the original source via the
+   * source map.
    *
-   * Because the positions come from OXC (identical to unit/component
-   * coverage), a subsequent `nextcov merge` rebase always finds exact
-   * line:col matches — no fallback, no misattribution.
+   * Because the positions come from OXC (matching Vitest's pipeline),
+   * a subsequent `nextcov merge` rebase always finds exact line:col matches —
+   * no fallback, no misattribution.
    */
   private async createEmptyCoverage(
     filePath: string,
@@ -971,12 +971,19 @@ export class CoverageConverter {
     try {
       const fileUrl = toFileUrl(filePath, this.projectRoot)
 
-      // Transform TypeScript/TSX → JS using OXC (bundled inside Vite via Rolldown).
+      // Transform TypeScript/TSX → JS using OXC (bundled in Vite via Rolldown).
       // sourcemap:true gives us the position mapping back to the original source.
-      // OXC does not constant-fold process.env.NODE_ENV without an explicit `define`,
-      // so all branches are preserved in the zero-coverage map — matching Vitest output.
+      //
+      // We explicitly set jsx.runtime:'automatic' to force JSX transformation
+      // regardless of the project's tsconfig.json. Next.js projects typically
+      // have "jsx":"preserve" in tsconfig, which OXC respects when auto-discovering
+      // it — leaving JSX untransformed and producing far fewer statements than
+      // Vitest's pipeline (which overrides the tsconfig via its own OXC config).
+      // OXC does not constant-fold process.env.NODE_ENV without an explicit
+      // define, so all branches are preserved — matching Vitest's behavior.
       const { code: compiledCode, map } = await transformWithOxc(code, filePath, {
         sourcemap: true,
+        jsx: { runtime: 'automatic' },
       })
 
       // Parse the compiled JS with Vite's fast Rollup-based parser

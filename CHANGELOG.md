@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Switch from `transformWithEsbuild` to `transformWithOxc`** — Zero-coverage generation now uses Vite's OXC-based transform (bundled inside Vite via Rolldown) instead of esbuild. OXC does not constant-fold `process.env.NODE_ENV` branches without an explicit `define`, so all branches are preserved in the zero-coverage map, matching Vitest output. This eliminates the need for `esbuild` as a direct dependency.
+- **Switch from `transformWithEsbuild` to `transformWithOxc`** — Zero-coverage generation now uses Vite's OXC-based transform (bundled inside Vite via Rolldown) instead of esbuild. OXC is called with `jsx: { runtime: 'automatic' }` to force JSX transformation regardless of the project's `tsconfig.json` (Next.js projects typically set `"jsx": "preserve"` which OXC respects when auto-discovering tsconfig, producing far fewer statements). OXC does not constant-fold `process.env.NODE_ENV` without an explicit `define`, so all branches are preserved. This eliminates the need for `esbuild` as a direct dependency.
 
 ### Fixed
 
