@@ -62,15 +62,48 @@ export function mergeV8CoverageByUrl(entries: V8ScriptCoverage[]): V8ScriptCover
       continue
     }
 
-    // Same URL - merge coverage counts using SUM
-    // The source and function structure are identical (same webpack bundle)
-    for (let i = 0; i < entry.functions.length && i < existing.functions.length; i++) {
-      const existingFn = existing.functions[i]
-      const newFn = entry.functions[i]
+    // Same URL - merge coverage counts using SUM.
+    //
+    // V8's `Profiler.takePreciseCoverage` emits functions in discovery order,
+    // NOT in source-position order. Different tests exercise different code
+    // paths → different discovery orders → the same source function appears
+    // at DIFFERENT array indices across entries (see nextcov #80). We must
+    // match functions by identity (`ranges[0].startOffset`, which is the
+    // function's source-byte offset in the compiled bundle — stable across
+    // all tests that reference the same script).
+    //
+    // When a function present in the new entry is NOT in the existing entry
+    // (e.g. it was cold in earlier tests but a later test exercised it), we
+    // append it so the coverage isn't lost.
+    const existingByStart = new Map<number, (typeof existing.functions)[number]>()
+    for (const fn of existing.functions) {
+      const key = fn.ranges[0]?.startOffset
+      if (key !== undefined) existingByStart.set(key, fn)
+    }
 
-      // Sum counts for each range
-      for (let j = 0; j < newFn.ranges.length && j < existingFn.ranges.length; j++) {
+    for (const newFn of entry.functions) {
+      const key = newFn.ranges[0]?.startOffset
+      const existingFn = key !== undefined ? existingByStart.get(key) : undefined
+
+      if (!existingFn) {
+        // Function absent from the existing entry — clone into it so its
+        // counts contribute to the merged output.
+        existing.functions.push({
+          functionName: newFn.functionName,
+          isBlockCoverage: newFn.isBlockCoverage,
+          ranges: newFn.ranges.map((r) => ({ ...r })),
+        })
+        continue
+      }
+
+      // Sum counts for each range. If `newFn` emitted extra tail ranges
+      // (e.g. detailed block coverage a rare test picked up), append them.
+      const shared = Math.min(newFn.ranges.length, existingFn.ranges.length)
+      for (let j = 0; j < shared; j++) {
         existingFn.ranges[j].count += newFn.ranges[j].count
+      }
+      for (let j = shared; j < newFn.ranges.length; j++) {
+        existingFn.ranges.push({ ...newFn.ranges[j] })
       }
     }
   }
