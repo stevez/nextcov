@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2] - 2026-08-16
+
+### Fixed
+
+- **Match V8 functions by `startOffset` identity when merging coverage by URL** (#81) — `mergeV8CoverageByUrl` previously matched `entry.functions[i]` against `existing.functions[i]` by array index. V8's `Profiler.takePreciseCoverage` emits `functions[]` in discovery order per test, so the same source function could land at different array indices across cache files, causing the merge to sum counts across unrelated functions. The merge is now keyed on `ranges[0].startOffset` — the function's byte offset in the compiled bundle, which is stable across all tests referencing the same script. Functions present in a later entry but absent from the accumulator are appended, and extra tail ranges on shared functions are preserved. Fixes #79 (structurally-identical functions, e.g. byte-identical `useCallback` pairs, reporting mirror-image hit counts) and #80 (rare-branch coverage getting clobbered to zero by an unrelated function sharing the same array index).
+
 ## [1.5.1] - 2026-07-10
 
 ### Fixed
