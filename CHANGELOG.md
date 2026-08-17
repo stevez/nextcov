@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.3] - 2026-08-17
+
+### Fixed
+
+- **Merge inner sub-ranges by `(startOffset, endOffset)` with hierarchical enclosing-range implicit counts** (#83) — Follow-up to #81. The `startOffset`-identity function matcher fixed array-index scrambling at the function level, but inner-range merging still summed `ranges[j]` by array index, so sub-ranges (basic blocks) landing at different positions across V8 entries had their counts summed onto unrelated blocks. An identity-only fix (matching sub-ranges by `(startOffset, endOffset)`) is insufficient on its own: V8 only emits a sub-range when its count *differs* from its enclosing range, so the same basic block can appear explicitly in one entry (e.g. `count=0` for an untaken arm) and only implicitly in another (inherited from the enclosing range's non-zero count) — a naive identity merge would let the explicit `0` clobber the implicit hit and drop that arm. The merge now walks sub-ranges hierarchically: on a hit, counts are summed; on a miss, the enclosing count is computed from a snapshot of the other side via `findEnclosingCount()` and added to the emitted count before appending. Fixes cases where branch arms were merged as `[0, 4]` or `[4, 0]` instead of the correct `[2, 2]` when different tests exercised different arms of the same branch.
+
 ## [1.5.2] - 2026-08-16
 
 ### Fixed
