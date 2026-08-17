@@ -96,14 +96,82 @@ export function mergeV8CoverageByUrl(entries: V8ScriptCoverage[]): V8ScriptCover
         continue
       }
 
-      // Sum counts for each range. If `newFn` emitted extra tail ranges
-      // (e.g. detailed block coverage a rare test picked up), append them.
-      const shared = Math.min(newFn.ranges.length, existingFn.ranges.length)
-      for (let j = 0; j < shared; j++) {
-        existingFn.ranges[j].count += newFn.ranges[j].count
+      // Sum counts for inner ranges. V8 emits ranges hierarchically: a
+      // function's range list starts with the whole-body range and adds
+      // strictly-nested sub-ranges only when the sub-region's count DIFFERS
+      // from its enclosing range. Two consequences drive this merge:
+      //
+      // 1. V8 may emit inner sub-ranges in different array orders across
+      //    tests, or omit them entirely in tests where the sub-region
+      //    happened to match its enclosing count. Match by
+      //    `(startOffset, endOffset)` identity, not array index.
+      //
+      // 2. When one entry has a sub-range and the other doesn't, the
+      //    "silent" entry is IMPLYING that its enclosing range's count
+      //    applies to that sub-region. To merge correctly we must add that
+      //    implicit count to whatever explicit count the other entry gave.
+      //    Skipping this step (as the naive `existingByKey`-only approach
+      //    does) causes rare sub-ranges to lose all counts from tests
+      //    whose whole-body range would otherwise have covered them.
+      const findEnclosingCount = (
+        ranges: (typeof existingFn.ranges),
+        start: number,
+        end: number,
+      ): number => {
+        let bestCount = 0
+        let bestSize = Infinity
+        for (const r of ranges) {
+          if (r.startOffset <= start && r.endOffset >= end) {
+            const size = r.endOffset - r.startOffset
+            if (size < bestSize) {
+              bestSize = size
+              bestCount = r.count
+            }
+          }
+        }
+        return bestCount
       }
-      for (let j = shared; j < newFn.ranges.length; j++) {
-        existingFn.ranges.push({ ...newFn.ranges[j] })
+
+      const existingRangesByKey = new Map<string, (typeof existingFn.ranges)[number]>()
+      for (const range of existingFn.ranges) {
+        existingRangesByKey.set(`${range.startOffset}:${range.endOffset}`, range)
+      }
+      // Snapshot the accumulator's ranges before we start mutating counts —
+      // used to answer "what was the implicit count for a range only the
+      // new entry emitted?".
+      const existingRangesSnapshot = existingFn.ranges.map((r) => ({ ...r }))
+
+      const seenNewKeys = new Set<string>()
+      for (const newRange of newFn.ranges) {
+        const rangeKey = `${newRange.startOffset}:${newRange.endOffset}`
+        seenNewKeys.add(rangeKey)
+        const existingRange = existingRangesByKey.get(rangeKey)
+        if (existingRange) {
+          existingRange.count += newRange.count
+        } else {
+          // New sub-range not present in the accumulator. Its merged count
+          // is `new.count + accumulator's implicit count` for that region.
+          const implicit = findEnclosingCount(
+            existingRangesSnapshot,
+            newRange.startOffset,
+            newRange.endOffset,
+          )
+          const clonedRange = { ...newRange, count: newRange.count + implicit }
+          existingFn.ranges.push(clonedRange)
+          existingRangesByKey.set(rangeKey, clonedRange)
+        }
+      }
+
+      // Symmetrically: for accumulator sub-ranges the new entry never
+      // emitted, add the new entry's implicit count for that region.
+      for (const range of existingFn.ranges) {
+        const key = `${range.startOffset}:${range.endOffset}`
+        if (seenNewKeys.has(key)) continue
+        range.count += findEnclosingCount(
+          newFn.ranges,
+          range.startOffset,
+          range.endOffset,
+        )
       }
     }
   }
