@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.4] - 2026-08-18
+
+### Fixed
+
+- **Include numeric-prefixed shared app chunks via source map check** (#85) — `filterAppCoverage` was unconditionally dropping all digit-prefixed chunks (e.g. `644-eaace.js`) as vendor code. However, webpack's code-splitting can extract app modules into shared numeric-ID chunks when they are imported by multiple pages, and these chunks are not vendor code but were being silently dropped, causing app modules like `useApiClient.js` to show ~15% coverage despite being executed in every test. For digit-prefixed chunks, the corresponding `.map` file is now read once (cached per filename via `_appSourceMapCache`) and the chunk is included only if its source map has a source matching `webpack://[project]/./src/` — the pattern for project-local source files; vendor chunks use `node_modules` paths or library-relative `../../src/` paths and are correctly excluded. On GRIP-UI (219 Playwright tests): `src/utils/useApiClient.js` went from 15% to 55% coverage (+82 statements), overall statements from 75.16% to 78.20% (+3pp).
+
 ## [1.5.3] - 2026-08-17
 
 ### Fixed
