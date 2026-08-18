@@ -6,7 +6,7 @@
 
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { DEFAULT_NEXTCOV_CONFIG, normalizePath } from '@/utils/config.js'
 import { isNextChunksUrl } from '@/parsers/nextjs.js'
 import { isViteSourceUrl } from '@/parsers/vite.js'
@@ -139,8 +139,13 @@ export class ClientCoverageCollector {
       if (isNextChunksUrl(normalizedUrl)) {
         // Exclude vendor chunks with purely numeric prefixes (e.g. 878-xxx.js).
         // Do NOT exclude hashed chunks that merely start with a digit (e.g. 02ec7w~yl_u_a.js).
+        // Exception: include numeric-prefixed chunks whose source map has project-local
+        // sources (webpack://[project]/./src/...). This identifies shared app chunks
+        // (e.g. useApiClient.js) while still excluding vendor-only chunks.
         const filename = normalizedUrl.split('/').pop() || ''
-        if (/^\d+-/.test(filename)) return false
+        if (/^\d+-/.test(filename)) {
+          return this._hasProjectSourceInMap(filename)
+        }
         return true
       }
 
@@ -156,6 +161,38 @@ export class ClientCoverageCollector {
 
       return false
     })
+  }
+
+  /**
+   * Check if a numeric-prefixed shared chunk contains project-local source files.
+   * Reads the chunk's .map file once (result cached per filename) and checks for
+   * webpack://[project]/./src/... source paths. This identifies shared app chunks
+   * (e.g. useApiClient.js shared across pages) vs vendor-only chunks whose library
+   * sources use relative paths like webpack://_N_E/../../../src/.
+   */
+  private _appSourceMapCache = new Map<string, boolean>()
+
+  private _hasProjectSourceInMap(filename: string): boolean {
+    if (this._appSourceMapCache.has(filename)) {
+      return this._appSourceMapCache.get(filename)!
+    }
+    const buildDir = DEFAULT_NEXTCOV_CONFIG.buildDir
+    const mapPath = join(buildDir, 'static', 'chunks', filename.replace(/\.js$/, '.js.map'))
+    if (!existsSync(mapPath)) {
+      this._appSourceMapCache.set(filename, false)
+      return false
+    }
+    try {
+      const map = JSON.parse(readFileSync(mapPath, 'utf-8'))
+      const result = (map.sources || []).some(
+        (s: string) => typeof s === 'string' && /webpack:\/\/[^/]+\/\.\/src\//.test(s)
+      )
+      this._appSourceMapCache.set(filename, result)
+      return result
+    } catch {
+      this._appSourceMapCache.set(filename, false)
+      return false
+    }
   }
 }
 
